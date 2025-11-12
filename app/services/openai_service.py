@@ -93,6 +93,7 @@ async def initialize_session(openai_ws):
             "audio": {
                 "input": {
                     "format": {"type": "audio/pcmu"},
+                    "transcription": {"model": "whisper-1"},  # Habilitar transcripción del usuario
                     "turn_detection": {"type": "server_vad"}
                 },
                 "output": {
