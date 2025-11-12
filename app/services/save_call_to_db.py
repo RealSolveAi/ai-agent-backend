@@ -80,7 +80,9 @@ def create_call_log_from_phone_number(
     phone_number_str: str, 
     call_sid: str, 
     direction: str,
-    from_number: str | None = None
+    from_number: str | None = None,
+    contact_id: int | None = None,
+    to_phone_number: str | None = None
 ) -> int | None:
     """
     Crea un CallLog buscando el CompanyPhoneNumber por número de teléfono.
@@ -106,10 +108,13 @@ def create_call_log_from_phone_number(
         call = CallLog(
             company_id=phone_number.company_id,
             phone_number_id=phone_number.id,
+            contact_id=contact_id,
             call_sid=call_sid,
             direction=CallDirection.inbound if direction == "inbound" else CallDirection.outbound,
             status=CallStatus.in_progress,
-            start_time=datetime.now(timezone.utc)
+            start_time=datetime.now(timezone.utc),
+            to_phone_number=to_phone_number if direction == "outbound" else None,
+            from_phone_number=from_number if direction == "inbound" else phone_number_str
         )
         db.add(call)
         db.commit()

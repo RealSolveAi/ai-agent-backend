@@ -24,8 +24,13 @@ class CallLog(Base):
 
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
     phone_number_id = Column(Integer, ForeignKey("company_phone_numbers.id", ondelete="SET NULL"), nullable=True)
+    contact_id = Column(Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True)  # Contacto destino (para llamadas salientes)
 
     call_sid = Column(String(255), unique=True, nullable=True)
+    
+    # Números de teléfono (para referencia rápida sin joins)
+    to_phone_number = Column(String(50), nullable=True)  # Número destino (para llamadas salientes)
+    from_phone_number = Column(String(50), nullable=True)  # Número origen (para llamadas entrantes)
 
     direction = Column(Enum(CallDirection), nullable=True)
     status = Column(Enum(CallStatus), nullable=True, default=CallStatus.initiated)
@@ -56,3 +61,8 @@ class CallLog(Base):
     def turns(cls):
         from app.models.call_turn import CallTurn
         return relationship("CallTurn", back_populates="call", cascade="all, delete-orphan")
+    
+    # ✅ Relación con el contacto destino
+    @declared_attr
+    def contact(cls):
+        return relationship("Contact", back_populates="call_logs")

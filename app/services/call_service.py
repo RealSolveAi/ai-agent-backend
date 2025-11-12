@@ -31,6 +31,7 @@ def get_calls_by_company(
         # Cargar relaciones para evitar N+1 queries
         calls = query.options(
             joinedload(CallLog.phone_number),
+            joinedload(CallLog.contact),
             joinedload(CallLog.turns)
         ).order_by(desc(CallLog.start_time)).offset(offset).limit(limit).all()
         total = query.count()
@@ -53,6 +54,13 @@ def get_calls_by_company(
                         "phone_number": call.phone_number.phone_number if call.phone_number else None,
                         "friendly_name": call.phone_number.friendly_name if call.phone_number else None,
                     } if call.phone_number else None,
+                    "contact": {
+                        "id": call.contact.id if call.contact else None,
+                        "name": call.contact.name if call.contact else None,
+                        "phone_number": call.contact.phone_number if call.contact else None,
+                    } if call.contact else None,
+                    "to_phone_number": call.to_phone_number,
+                    "from_phone_number": call.from_phone_number,
                     "turns_count": len(call.turns) if call.turns else 0,
                     "transcription_summary": call.transcription_summary,
                     "recording_url": call.recording_url,
@@ -76,6 +84,7 @@ def get_call_detail(call_id: int):
         call = db.query(CallLog).options(
             joinedload(CallLog.phone_number),
             joinedload(CallLog.company),
+            joinedload(CallLog.contact),
             joinedload(CallLog.turns)
         ).filter(CallLog.id == call_id).first()
         
@@ -104,6 +113,13 @@ def get_call_detail(call_id: int):
                 "phone_number": call.phone_number.phone_number if call.phone_number else None,
                 "friendly_name": call.phone_number.friendly_name if call.phone_number else None,
             } if call.phone_number else None,
+            "contact": {
+                "id": call.contact.id if call.contact else None,
+                "name": call.contact.name if call.contact else None,
+                "phone_number": call.contact.phone_number if call.contact else None,
+            } if call.contact else None,
+            "to_phone_number": call.to_phone_number,
+            "from_phone_number": call.from_phone_number,
             "timeline": [
                 {
                     "id": turn.id,

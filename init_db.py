@@ -5,6 +5,7 @@ from app.models.user import User
 from app.models.company_phone_number import CompanyPhoneNumber
 from app.models.call_log import CallLog
 from app.models.call_turn import CallTurn
+from app.models.contact import Contact
 
 print("🛠️ Creando tablas en PostgreSQL...")
 Base.metadata.create_all(bind=engine)

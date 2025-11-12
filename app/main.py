@@ -4,6 +4,7 @@ from app.services import twilio_service
 from app.routers.company_router import router as company_router
 from app.routers.phone_number_router import router as phone_number_router
 from app.routers.call_router import router as call_router
+from app.routers.contact_router import router as contact_router
 
 
 app = FastAPI(title="Realsolve AI Backend", version="1.0")
@@ -16,6 +17,7 @@ app.include_router(twilio_service.router, tags=["Twilio"])
 app.include_router(company_router)
 app.include_router(phone_number_router)
 app.include_router(call_router)
+app.include_router(contact_router)
 
 @app.get("/")
 async def root():

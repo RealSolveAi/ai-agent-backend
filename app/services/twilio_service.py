@@ -349,16 +349,42 @@ async def handle_media_stream(websocket: WebSocket):
         await asyncio.gather(receive_from_twilio(), send_to_twilio())
 
 class PhoneNumberRequest(BaseModel):
-    phone_number: str
+    phone_number: str | None = None
+    contact_id: int | None = None  # Opcional: ID del contacto destino
 
 @router.post("/make-call")
 async def make_call(request: PhoneNumberRequest):
     """
     Inicia una llamada saliente al número de teléfono proporcionado.
+    Puede usar contact_id (recomendado) o phone_number directamente.
     """
     try:
+        from app.services.contact_service import get_contact_by_id
+        from app.persistance.db import SessionLocal
+        from app.models.contact import Contact
+        
+        # Determinar el número de teléfono destino
+        destination_phone = None
+        contact_id = None
+        
+        if request.contact_id:
+            # Obtener contacto desde la base de datos
+            db = SessionLocal()
+            try:
+                contact = db.query(Contact).filter_by(id=request.contact_id, is_active=True).first()
+                if not contact:
+                    raise HTTPException(status_code=404, detail="Contacto no encontrado o inactivo")
+                destination_phone = contact.phone_number
+                contact_id = contact.id
+            finally:
+                db.close()
+        elif request.phone_number:
+            destination_phone = request.phone_number
+        else:
+            raise HTTPException(status_code=400, detail="Debe proporcionar contact_id o phone_number")
+        
         # Obtener la URL base para los webhooks
-        phone_number = request.phone_number
+        phone_number = destination_phone
         host = os.getenv('HOST')
         if not host.startswith(('http://', 'https://')):
             host = f'https://{host}'
@@ -390,7 +416,9 @@ async def make_call(request: PhoneNumberRequest):
                 phone_number_str=TWILIO_PHONE_NUMBER,
                 call_sid=call.sid,
                 direction="outbound",
-                from_number=phone_number
+                from_number=phone_number,
+                contact_id=contact_id,
+                to_phone_number=destination_phone
             )
             if call_log_id:
                 print(f"✅ CallLog creado para llamada saliente: {call_log_id}")
@@ -402,6 +430,7 @@ async def make_call(request: PhoneNumberRequest):
             "call_sid": call.sid,
             "to": phone_number,
             "from": TWILIO_PHONE_NUMBER,
+            "contact_id": contact_id,
             "twiml": str(response)
         }
     except Exception as e:

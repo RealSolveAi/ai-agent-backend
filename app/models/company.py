@@ -31,3 +31,8 @@ class Company(Base):
     @declared_attr
     def call_logs(cls):
         return relationship("CallLog", back_populates="company", cascade="all, delete-orphan")
+    
+    # ✅ Relación con contactos
+    @declared_attr
+    def contacts(cls):
+        return relationship("Contact", back_populates="company", cascade="all, delete-orphan")
