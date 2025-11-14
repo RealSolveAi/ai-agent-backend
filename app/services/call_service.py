@@ -8,6 +8,71 @@ from typing import Optional
 from datetime import datetime
 
 
+def get_all_calls(
+    limit: int = 50,
+    offset: int = 0,
+    phone_number_id: Optional[int] = None,
+    status: Optional[str] = None
+):
+    """
+    Obtiene todas las llamadas del sistema (solo para superadmin).
+    """
+    db = SessionLocal()
+    try:
+        query = db.query(CallLog)
+        
+        if phone_number_id:
+            query = query.filter(CallLog.phone_number_id == phone_number_id)
+        
+        if status:
+            query = query.filter(CallLog.status == status)
+        
+        # Cargar relaciones para evitar N+1 queries
+        calls = query.options(
+            joinedload(CallLog.phone_number),
+            joinedload(CallLog.contact),
+            joinedload(CallLog.turns)
+        ).order_by(desc(CallLog.start_time)).offset(offset).limit(limit).all()
+        total = query.count()
+        
+        return {
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "calls": [
+                {
+                    "id": call.id,
+                    "call_sid": call.call_sid,
+                    "direction": call.direction.value if call.direction else None,
+                    "status": call.status.value if call.status else None,
+                    "duration_seconds": call.duration_seconds,
+                    "start_time": call.start_time.isoformat() if call.start_time else None,
+                    "end_time": call.end_time.isoformat() if call.end_time else None,
+                    "phone_number": {
+                        "id": call.phone_number.id if call.phone_number else None,
+                        "phone_number": call.phone_number.phone_number if call.phone_number else None,
+                        "friendly_name": call.phone_number.friendly_name if call.phone_number else None,
+                    } if call.phone_number else None,
+                    "contact": {
+                        "id": call.contact.id if call.contact else None,
+                        "name": call.contact.name if call.contact else None,
+                        "phone_number": call.contact.phone_number if call.contact else None,
+                    } if call.contact else None,
+                    "to_phone_number": call.to_phone_number,
+                    "from_phone_number": call.from_phone_number,
+                    "turns_count": len(call.turns) if call.turns else 0,
+                    "transcription_summary": call.transcription_summary,
+                    "recording_url": call.recording_url,
+                }
+                for call in calls
+            ]
+        }
+    except Exception as e:
+        return {"error": f"Error al obtener llamadas: {str(e)}"}
+    finally:
+        db.close()
+
+
 def get_calls_by_company(
     company_id: int,
     limit: int = 50,

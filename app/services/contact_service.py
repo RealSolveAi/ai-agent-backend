@@ -213,3 +213,27 @@ def delete_contact(contact_id: int):
     finally:
         db.close()
 
+
+def hard_delete_contact(contact_id: int):
+    """
+    Elimina permanentemente un contacto de la base de datos.
+    """
+    db = SessionLocal()
+    try:
+        contact = db.query(Contact).filter_by(id=contact_id).first()
+        if not contact:
+            return {"error": "Contacto no encontrado"}
+        
+        db.delete(contact)
+        db.commit()
+        
+        return {
+            "message": "Contacto eliminado permanentemente.",
+            "contact_id": contact_id
+        }
+    except Exception as e:
+        db.rollback()
+        return {"error": f"Error al eliminar contacto: {str(e)}"}
+    finally:
+        db.close()
+

@@ -2,8 +2,9 @@
 from app.models.company import Company
 from app.models.user import User, UserRole
 from app.persistance.db import SessionLocal
-from werkzeug.security import generate_password_hash
+from app.config.security import hash_password
 from sqlalchemy.exc import IntegrityError
+from datetime import datetime, timezone
 
 
 def register_company_and_admin(data: dict):
@@ -27,7 +28,7 @@ def register_company_and_admin(data: dict):
             company_id=company.id,
             name=data["admin_name"],
             email=data["admin_email"],
-            password_hash=generate_password_hash(data["admin_password"]),
+            password_hash=hash_password(data["admin_password"]),
             role=UserRole.admin
         )
         db.add(admin_user)
@@ -42,5 +43,162 @@ def register_company_and_admin(data: dict):
     except IntegrityError:
         db.rollback()
         return {"error": "El correo ya está registrado o la empresa ya existe."}
+    finally:
+        db.close()
+
+
+def get_all_companies(limit: int = 100, offset: int = 0):
+    """
+    Obtiene todas las empresas (solo para superadmin).
+    """
+    db = SessionLocal()
+    try:
+        from sqlalchemy import desc
+        companies = db.query(Company).order_by(desc(Company.created_at)).offset(offset).limit(limit).all()
+        total = db.query(Company).count()
+        
+        return {
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "companies": [
+                {
+                    "id": c.id,
+                    "name": c.name,
+                    "email": c.email,
+                    "industry": c.industry,
+                    "country": c.country,
+                    "timezone": c.timezone,
+                    "status": c.status,
+                    "is_active": c.is_active,
+                    "created_at": c.created_at.isoformat() if c.created_at else None,
+                }
+                for c in companies
+            ]
+        }
+    except Exception as e:
+        return {"error": f"Error al obtener empresas: {str(e)}"}
+    finally:
+        db.close()
+
+
+def get_company_by_id(company_id: int):
+    """
+    Obtiene una empresa por su ID (solo para superadmin).
+    """
+    db = SessionLocal()
+    try:
+        company = db.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            return {"error": "Empresa no encontrada"}
+        
+        return {
+            "id": company.id,
+            "name": company.name,
+            "email": company.email,
+            "industry": company.industry,
+            "country": company.country,
+            "timezone": company.timezone,
+            "status": company.status,
+            "is_active": company.is_active,
+            "created_at": company.created_at.isoformat() if company.created_at else None,
+            "updated_at": company.updated_at.isoformat() if company.updated_at else None,
+        }
+    except Exception as e:
+        return {"error": f"Error al obtener empresa: {str(e)}"}
+    finally:
+        db.close()
+
+
+def deactivate_company(company_id: int):
+    """
+    Desactiva una empresa y todos sus usuarios.
+    """
+    db = SessionLocal()
+    try:
+        company = db.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            return {"error": "Empresa no encontrada"}
+        
+        # Desactivar empresa
+        company.is_active = False
+        company.updated_at = datetime.now(timezone.utc)
+        
+        # Desactivar todos los usuarios de la empresa
+        users = db.query(User).filter(User.company_id == company_id).all()
+        for user in users:
+            user.is_active = False
+        
+        db.commit()
+        
+        return {
+            "message": f"Empresa y {len(users)} usuarios desactivados correctamente.",
+            "company_id": company_id,
+            "users_deactivated": len(users)
+        }
+    except Exception as e:
+        db.rollback()
+        return {"error": f"Error al desactivar empresa: {str(e)}"}
+    finally:
+        db.close()
+
+
+def activate_company(company_id: int):
+    """
+    Activa una empresa y todos sus usuarios.
+    """
+    db = SessionLocal()
+    try:
+        company = db.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            return {"error": "Empresa no encontrada"}
+        
+        # Activar empresa
+        company.is_active = True
+        company.updated_at = datetime.now(timezone.utc)
+        
+        # Activar todos los usuarios de la empresa
+        users = db.query(User).filter(User.company_id == company_id).all()
+        for user in users:
+            user.is_active = True
+        
+        db.commit()
+        
+        return {
+            "message": f"Empresa y {len(users)} usuarios activados correctamente.",
+            "company_id": company_id,
+            "users_activated": len(users)
+        }
+    except Exception as e:
+        db.rollback()
+        return {"error": f"Error al activar empresa: {str(e)}"}
+    finally:
+        db.close()
+
+
+def delete_company(company_id: int):
+    """
+    Elimina permanentemente una empresa y todos sus datos relacionados.
+    CASCADE eliminará usuarios, números telefónicos, contactos y llamadas.
+    """
+    db = SessionLocal()
+    try:
+        company = db.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            return {"error": "Empresa no encontrada"}
+        
+        company_name = company.name
+        
+        # Eliminar empresa (CASCADE eliminará todo lo relacionado)
+        db.delete(company)
+        db.commit()
+        
+        return {
+            "message": f"Empresa '{company_name}' y todos sus datos relacionados eliminados permanentemente.",
+            "company_id": company_id
+        }
+    except Exception as e:
+        db.rollback()
+        return {"error": f"Error al eliminar empresa: {str(e)}"}
     finally:
         db.close()

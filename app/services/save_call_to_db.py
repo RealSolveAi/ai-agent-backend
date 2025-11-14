@@ -42,18 +42,34 @@ def add_turn(call_log_id: int, speaker: Speaker, content: str, intent: str | Non
 
 
 def finish_call(call_log_id: int, duration_seconds: int | None = None, summary: str | None = None):
+    """
+    Finaliza una llamada y calcula la duración automáticamente si no se proporciona.
+    """
     db: Session = SessionLocal()
     try:
         call = db.query(CallLog).filter(CallLog.id == call_log_id).first()
         if not call:
             return
+        
+        end_time = datetime.now(timezone.utc)
         call.status = CallStatus.completed
-        call.end_time = datetime.now(timezone.utc)
-        if duration_seconds is not None:
+        call.end_time = end_time
+        
+        # Calcular duración si no se proporciona y tenemos start_time
+        if duration_seconds is None and call.start_time:
+            duration_seconds = int((end_time - call.start_time).total_seconds())
             call.duration_seconds = duration_seconds
+        elif duration_seconds is not None:
+            call.duration_seconds = duration_seconds
+        
         if summary:
             call.transcription_summary = summary
+        
         db.commit()
+        print(f"✅ Llamada finalizada: ID={call_log_id}, Duración={call.duration_seconds}s")
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Error al finalizar llamada: {e}")
     finally:
         db.close()
 

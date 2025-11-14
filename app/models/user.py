@@ -7,16 +7,17 @@ import enum
 
 
 class UserRole(str, enum.Enum):
-    admin = "admin"
-    agent = "agent"
-    viewer = "viewer"
+    superadmin = "superadmin"  # Acceso total a todas las empresas
+    admin = "admin"  # Administrador de su empresa
+    agent = "agent"  # Agente de su empresa
+    viewer = "viewer"  # Solo lectura de su empresa
 
 
 class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"))
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)  # NULL para superadmin
     name = Column(String(255), nullable=False)
     email = Column(String(255), nullable=False, unique=True)
     password_hash = Column(String, nullable=False)

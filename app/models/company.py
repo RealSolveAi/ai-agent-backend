@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String, DateTime, Boolean
 from sqlalchemy.orm import relationship, declared_attr
 from app.persistance.db import Base
 
@@ -14,6 +14,7 @@ class Company(Base):
     country = Column(String(100), nullable=True)
     timezone = Column(String(50), nullable=True)
     status = Column(String(20), nullable=True)
+    is_active = Column(Boolean, default=True)  # Para desactivar empresa y todos sus usuarios
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), nullable=True)
 

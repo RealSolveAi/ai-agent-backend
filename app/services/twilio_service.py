@@ -180,8 +180,12 @@ async def handle_media_stream(websocket: WebSocket):
                             db.close()
                     except Exception as e:
                         print(f"❌ Error al finalizar llamada: {e}")
-                if openai_ws.state.name == 'OPEN':
-                    await openai_ws.close()
+                if openai_ws: #openai_ws.state.name == 'OPEN': (VERSION ANTERIOR)
+                    print("Cerrando la sesión de OpenAI Realtime (fin de la llamda)...");
+                    try:
+                      await openai_ws.close()
+                    except:
+                      pass
 
         async def send_to_twilio():
             """Recibe eventos de la API de OpenAI Realtime y envía audio de vuelta a Twilio."""
@@ -305,6 +309,13 @@ async def handle_media_stream(websocket: WebSocket):
                         finish_call(call_log_id)
                     except:
                         pass
+                # Cerrando OPENAI (VERSION 2-ADD)
+                if openai_ws:
+                  print("Cerrando sesión de OpenAI Realtime (error en send_to_twilio)...")
+                  try:
+                    await openai_ws.close()
+                  except:
+                    pass
 
         async def handle_speech_started_event():
             """ Maneja la interrupción cuando el habla del llamador comienza."""
