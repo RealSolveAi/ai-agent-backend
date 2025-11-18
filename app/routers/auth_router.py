@@ -14,11 +14,15 @@ security = HTTPBearer()
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    remember_me: bool = False  # Si es True, el token expira en 30 días
 
 
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    expires_in: int  # Tiempo de expiración en segundos
+    expires_at: str  # Fecha de expiración ISO format
+    remember_me: bool
     user: dict
 
 
@@ -43,11 +47,24 @@ async def login(request: LoginRequest):
         "company_id": user.company_id,
         "role": user.role
     }
-    access_token = create_access_token(token_data)
+    access_token = create_access_token(token_data, remember_me=request.remember_me)
+    
+    # Calcular fecha de expiración para la respuesta
+    from datetime import datetime, timedelta
+    from app.config.security import REMEMBER_ME_EXPIRE_DAYS, ACCESS_TOKEN_EXPIRE_MINUTES
+    if request.remember_me:
+        expires_in = REMEMBER_ME_EXPIRE_DAYS * 24 * 60 * 60  # segundos
+        expires_at = datetime.utcnow() + timedelta(days=REMEMBER_ME_EXPIRE_DAYS)
+    else:
+        expires_in = ACCESS_TOKEN_EXPIRE_MINUTES * 60  # segundos
+        expires_at = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     
     return {
         "access_token": access_token,
         "token_type": "bearer",
+        "expires_in": expires_in,  # Tiempo de expiración en segundos
+        "expires_at": expires_at.isoformat(),  # Fecha de expiración
+        "remember_me": request.remember_me,
         "user": user.dict()
     }
 
@@ -102,7 +119,29 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
         "company_id": current_user.company_id,
         "company_name": current_user.company.name if current_user.company else None,
         "is_active": current_user.is_active,
-        "last_login": current_user.last_login.isoformat() if current_user.last_login else None
+        "last_login": current_user.last_login.isoformat() if current_user.last_login else None,
+        "last_logout": current_user.last_logout.isoformat() if current_user.last_logout else None
+    }
+
+
+@router.post("/logout")
+async def logout(current_user: User = Depends(get_current_user)):
+    """
+    Cierra la sesión del usuario actual.
+    Registra el logout en la base de datos.
+    
+    Nota: Con JWT stateless, el token sigue siendo válido hasta su expiración.
+    El cliente debe eliminar el token del almacenamiento local.
+    """
+    from app.services.auth_service import logout_user
+    
+    result = logout_user(current_user.id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    
+    return {
+        "message": "Sesión cerrada exitosamente",
+        "logged_out_at": result["logged_out_at"]
     }
 
 

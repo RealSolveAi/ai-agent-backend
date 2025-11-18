@@ -74,3 +74,28 @@ def get_user_by_email(email: str):
     finally:
         db.close()
 
+
+def logout_user(user_id: int):
+    """
+    Registra el logout de un usuario actualizando last_logout.
+    """
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return {"error": "Usuario no encontrado"}
+        
+        user.last_logout = datetime.now(timezone.utc)
+        db.commit()
+        
+        return {
+            "message": "Logout exitoso",
+            "user_id": user_id,
+            "logged_out_at": user.last_logout.isoformat()
+        }
+    except Exception as e:
+        db.rollback()
+        return {"error": f"Error al registrar logout: {str(e)}"}
+    finally:
+        db.close()
+

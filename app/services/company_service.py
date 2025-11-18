@@ -176,6 +176,61 @@ def activate_company(company_id: int):
         db.close()
 
 
+def update_company(company_id: int, data: dict):
+    """
+    Actualiza una empresa existente.
+    Solo permite actualizar campos específicos.
+    """
+    db = SessionLocal()
+    try:
+        company = db.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            return {"error": "Empresa no encontrada"}
+        
+        # Actualizar campos permitidos
+        if "name" in data and data["name"]:
+            company.name = data["name"]
+        if "email" in data:
+            company.email = data["email"]
+        if "industry" in data:
+            company.industry = data["industry"]
+        if "country" in data:
+            company.country = data["country"]
+        if "timezone" in data:
+            company.timezone = data["timezone"]
+        if "status" in data:
+            company.status = data["status"]
+        if "is_active" in data:
+            company.is_active = data["is_active"]
+        
+        # Actualizar timestamp
+        company.updated_at = datetime.now(timezone.utc)
+        
+        db.commit()
+        db.refresh(company)
+        
+        return {
+            "message": "Empresa actualizada correctamente.",
+            "company_id": company.id,
+            "company": {
+                "id": company.id,
+                "name": company.name,
+                "email": company.email,
+                "industry": company.industry,
+                "country": company.country,
+                "timezone": company.timezone,
+                "status": company.status,
+                "is_active": company.is_active,
+                "updated_at": company.updated_at.isoformat() if company.updated_at else None,
+            }
+        }
+    except Exception as e:
+        db.rollback()
+        return {"error": f"Error al actualizar empresa: {str(e)}"}
+    finally:
+        db.close()
+
+
 def delete_company(company_id: int):
     """
     Elimina permanentemente una empresa y todos sus datos relacionados.

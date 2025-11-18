@@ -13,8 +13,10 @@ class CallDirection(str, enum.Enum):
 class CallStatus(str, enum.Enum):
     initiated = "initiated"
     in_progress = "in_progress"
-    completed = "completed"
-    failed = "failed"
+    completed = "completed"  # Llamada completada con interacción del usuario
+    no_answer = "no_answer"  # No contestaron la llamada
+    no_response = "no_response"  # Contestaron pero nunca hablaron/interactuaron
+    failed = "failed"  # Falló por otras razones (busy, error, etc.)
 
 
 class CallLog(Base):
@@ -42,6 +44,8 @@ class CallLog(Base):
     end_time = Column(DateTime(timezone=True), nullable=True)
 
     recording_url = Column(String, nullable=True)
+    recording_sid = Column(String(255), nullable=True)  # SID de la grabación en Twilio
+    recording_duration = Column(Integer, nullable=True)  # Duración de la grabación en segundos
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     # ✅ Relación con la empresa (la que faltaba)

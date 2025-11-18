@@ -1,5 +1,5 @@
 # app/services/save_call_to_db.py
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from datetime import datetime, timezone
 from app.persistance.db import SessionLocal
 from app.models.call_log import CallLog, CallStatus, CallDirection
@@ -41,35 +41,177 @@ def add_turn(call_log_id: int, speaker: Speaker, content: str, intent: str | Non
         db.close()
 
 
-def finish_call(call_log_id: int, duration_seconds: int | None = None, summary: str | None = None):
+def finish_call(call_log_id: int, duration_seconds: int | None = None, summary: str | None = None, recording_url: str | None = None):
     """
-    Finaliza una llamada y calcula la duración automáticamente si no se proporciona.
+    Finaliza una llamada (actualiza end_time y summary).
+    NO marca como completed hasta que tengamos recording_duration.
+    La duración se obtiene de recording_duration si está disponible, 
+    de lo contrario se usa duration_seconds si se proporciona.
+    Determina el estado correcto basándose en si hubo interacción del usuario.
     """
     db: Session = SessionLocal()
     try:
-        call = db.query(CallLog).filter(CallLog.id == call_log_id).first()
+        # Cargar la llamada con sus turnos para poder determinar el estado
+        call = db.query(CallLog).options(
+            joinedload(CallLog.turns)
+        ).filter(CallLog.id == call_log_id).first()
+        
         if not call:
             return
         
         end_time = datetime.now(timezone.utc)
-        call.status = CallStatus.completed
         call.end_time = end_time
         
-        # Calcular duración si no se proporciona y tenemos start_time
-        if duration_seconds is None and call.start_time:
-            duration_seconds = int((end_time - call.start_time).total_seconds())
-            call.duration_seconds = duration_seconds
+        # Usar recording_duration si está disponible, de lo contrario usar duration_seconds si se proporciona
+        if call.recording_duration is not None:
+            call.duration_seconds = call.recording_duration
+            # Determinar el estado correcto basándose en la interacción del usuario
+            call.status = determine_call_status(call)
         elif duration_seconds is not None:
             call.duration_seconds = duration_seconds
         
         if summary:
             call.transcription_summary = summary
         
+        if recording_url:
+            call.recording_url = recording_url
+        
         db.commit()
-        print(f"✅ Llamada finalizada: ID={call_log_id}, Duración={call.duration_seconds}s")
+        print(f"✅ Llamada finalizada: ID={call_log_id}, Duración={call.duration_seconds}s, Status={call.status.value if call.status else 'N/A'}, Recording URL: {recording_url or 'N/A'}")
     except Exception as e:
         db.rollback()
         print(f"❌ Error al finalizar llamada: {e}")
+    finally:
+        db.close()
+
+
+def is_voicemail_message(content: str) -> bool:
+    """
+    Detecta si un mensaje es del buzón de voz (voicemail) de Twilio.
+    Los mensajes del buzón de voz son automáticos y no indican que el usuario contestó.
+    """
+    if not content:
+        return False
+    
+    content_lower = content.lower().strip()
+    
+    # Frases comunes del buzón de voz en español
+    voicemail_phrases = [
+        "oír el tono",
+        "grabe su mensaje",
+        "para finalizar",
+        "presione numeral",
+        "mensaje de voz guardado",
+        "mensaje guardado",
+        "deje su mensaje",
+        "después del tono",
+        "after the tone",
+        "leave a message",
+        "press pound",
+        "voicemail",
+        "buzón de voz",
+        "mailbox",
+        "greeting",
+        "unavailable",
+        "not available"
+    ]
+    
+    # Verificar si el contenido contiene alguna frase del buzón de voz
+    for phrase in voicemail_phrases:
+        if phrase in content_lower:
+            return True
+    
+    # También detectar mensajes muy cortos que son típicos del buzón de voz
+    # (solo si son muy específicos)
+    if len(content_lower) < 10 and any(word in content_lower for word in ["tono", "tone", "mensaje", "message"]):
+        return True
+    
+    return False
+
+
+def determine_call_status(call: CallLog) -> CallStatus:
+    """
+    Determina el estado correcto de una llamada basándose en:
+    - Si hay turnos del usuario REAL (no buzón de voz) → completed
+    - Si solo hay turnos del buzón de voz → no_answer (no contestó)
+    - Si no hay turnos del usuario pero hay recording_duration → no_response
+    - Si el estado actual es no_answer → no_answer (mantener)
+    - Si el estado actual es failed → failed (mantener)
+    """
+    # Si ya está marcado como no_answer o failed, mantenerlo
+    if call.status == CallStatus.no_answer or call.status == CallStatus.failed:
+        return call.status
+    
+    # Si tenemos recording_duration, verificar si hubo interacción del usuario REAL
+    if call.recording_duration is not None:
+        # Filtrar turnos del usuario que NO sean del buzón de voz
+        real_user_turns = [
+            turn for turn in call.turns 
+            if turn.speaker == Speaker.user and not is_voicemail_message(turn.content)
+        ]
+        
+        if len(real_user_turns) > 0:
+            # Hubo interacción real del usuario → completed
+            return CallStatus.completed
+        else:
+            # Verificar si hay turnos del usuario que sean del buzón de voz
+            voicemail_turns = [
+                turn for turn in call.turns 
+                if turn.speaker == Speaker.user and is_voicemail_message(turn.content)
+            ]
+            
+            if len(voicemail_turns) > 0:
+                # Solo hay mensajes del buzón de voz → no_answer (no contestó)
+                return CallStatus.no_answer
+            else:
+                # No hubo interacción del usuario → no_response
+                return CallStatus.no_response
+    
+    # Si aún no tenemos recording_duration, mantener el estado actual
+    return call.status if call.status else CallStatus.in_progress
+
+
+def update_call_recording_url(call_sid: str, recording_url: str, recording_sid: str | None = None, recording_duration: int | None = None):
+    """
+    Actualiza el recording_url, recording_sid y recording_duration de una llamada por su call_sid.
+    También actualiza duration_seconds con recording_duration si está disponible.
+    Determina el estado correcto basándose en si hubo interacción del usuario.
+    """
+    db: Session = SessionLocal()
+    try:
+        # Cargar la llamada con sus turnos para poder determinar el estado
+        call = db.query(CallLog).options(
+            joinedload(CallLog.turns)
+        ).filter(CallLog.call_sid == call_sid).first()
+        
+        if not call:
+            print(f"⚠️ No se encontró CallLog para CallSid: {call_sid}")
+            return False
+        
+        call.recording_url = recording_url
+        if recording_sid:
+            call.recording_sid = recording_sid
+        if recording_duration is not None:
+            call.recording_duration = recording_duration
+            # Usar recording_duration como duration_seconds
+            call.duration_seconds = recording_duration
+            
+            # Determinar el estado correcto basándose en la interacción del usuario
+            call.status = determine_call_status(call)
+            
+            # Si no tenemos end_time, establecerlo ahora
+            if not call.end_time:
+                call.end_time = datetime.now(timezone.utc)
+        
+        db.commit()
+        print(f"✅ Recording URL actualizado para CallSid: {call_sid}, URL: {recording_url}, SID: {recording_sid}, Duration: {recording_duration}s, Status: {call.status.value if call.status else 'N/A'}")
+        return True
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Error al actualizar recording URL: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
     finally:
         db.close()
 

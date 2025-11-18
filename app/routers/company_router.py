@@ -5,6 +5,7 @@ from app.services.company_service import (
     register_company_and_admin,
     get_all_companies,
     get_company_by_id,
+    update_company,
     deactivate_company,
     activate_company,
     delete_company
@@ -24,6 +25,16 @@ class RegisterCompanyRequest(BaseModel):
     admin_name: str
     admin_email: EmailStr
     admin_password: str
+
+
+class UpdateCompanyRequest(BaseModel):
+    name: str | None = None
+    email: EmailStr | None = None
+    industry: str | None = None
+    country: str | None = None
+    timezone: str | None = None
+    status: str | None = None
+    is_active: bool | None = None
 
 @router.post("/register")
 async def register_company(
@@ -77,6 +88,31 @@ async def get_company(
     result = get_company_by_id(company_id)
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@router.put("/{company_id}")
+async def update_company_endpoint(
+    company_id: int,
+    request: UpdateCompanyRequest,
+    current_user: User = Depends(get_superadmin)
+):
+    """
+    Actualiza una empresa existente.
+    Solo accesible para superadministradores.
+    """
+    # Filtrar solo los campos que no son None
+    update_data = {k: v for k, v in request.dict().items() if v is not None}
+    
+    if not update_data:
+        raise HTTPException(
+            status_code=400,
+            detail="Debe proporcionar al menos un campo para actualizar"
+        )
+    
+    result = update_company(company_id, update_data)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
     return result
 
 

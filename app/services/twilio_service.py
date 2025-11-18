@@ -3,7 +3,9 @@ import json
 import base64
 import asyncio
 import websockets
-from fastapi import APIRouter, WebSocket, Request, HTTPException
+import traceback
+from datetime import datetime, timezone
+from fastapi import APIRouter, WebSocket, Request, HTTPException, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
 from twilio.rest import Client
@@ -13,11 +15,14 @@ from app.services.openai_service import initialize_session
 from app.services.save_call_to_db import (
     create_call_log_from_phone_number,
     add_turn,
-    finish_call
+    finish_call,
+    update_call_recording_url
 )
 from app.persistance.db import SessionLocal
 from app.models.call_log import CallLog
 from app.models.call_turn import Speaker
+from app.models.user import User
+from app.routers.auth_router import get_current_user
 from pydantic import BaseModel
 
 load_dotenv()
@@ -49,41 +54,285 @@ if not OPENAI_API_KEY:
 async def index_page():
     return {"message": "Servidor de Twilio Media Stream está corriendo!"}
 
+
+# IMPORTANTE: Este endpoint debe ser PÚBLICO (sin autenticación)
+# Es un webhook de Twilio que recibe el status callback de las llamadas
+# Incluye el recording_url cuando la grabación está disponible
+@router.api_route("/call-status", methods=["GET", "POST"])
+async def handle_call_status(request: Request):
+    """
+    Maneja el status callback de Twilio para actualizar el estado de la llamada
+    y guardar el recording_url cuando esté disponible.
+    
+    Este endpoint es público y no requiere autenticación ya que es llamado por Twilio
+    como webhook cuando cambia el estado de una llamada o cuando la grabación está lista.
+    """
+    try:
+        # Obtener parámetros del webhook de Twilio
+        # Twilio envía los datos como form-data (application/x-www-form-urlencoded)
+        try:
+            form_data = await request.form()
+        except Exception as form_error:
+            # Si falla el form parsing, intentar obtener de query params o body
+            print(f"⚠️ Error al parsear form, intentando alternativas: {form_error}")
+            # Intentar desde query params
+            if request.method == "GET":
+                form_data = request.query_params
+            else:
+                # Intentar parsear el body manualmente
+                body = await request.body()
+                if body:
+                    from urllib.parse import parse_qs
+                    parsed = parse_qs(body.decode())
+                    form_data = {k: v[0] if v else None for k, v in parsed.items()}
+                else:
+                    form_data = {}
+        
+        call_sid = form_data.get("CallSid")
+        call_status = form_data.get("CallStatus")
+        recording_sid = form_data.get("RecordingSid")
+        recording_url = form_data.get("RecordingUrl")
+        recording_status = form_data.get("RecordingStatus")
+        recording_duration = form_data.get("RecordingDuration")
+        
+        print(f"📞 Status callback - CallSid: {call_sid}, Status: {call_status}, RecordingStatus: {recording_status}, RecordingSid: {recording_sid}")
+        print(f"📋 Todos los parámetros recibidos: {dict(form_data) if hasattr(form_data, 'keys') else form_data}")
+        
+        # Si hay recording_sid o recording_url, actualizar el CallLog
+        if call_sid and (recording_sid or recording_url):
+            # Construir URL completa del recording
+            if recording_sid:
+                # Si tenemos RecordingSid, construir la URL completa
+                final_recording_url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Recordings/{recording_sid}"
+            elif recording_url:
+                # Si ya viene la URL completa, usarla
+                final_recording_url = recording_url
+            else:
+                final_recording_url = None
+            
+            # Parsear recording_duration si está disponible
+            recording_duration_int = None
+            if recording_duration:
+                try:
+                    recording_duration_int = int(recording_duration)
+                except (ValueError, TypeError):
+                    pass
+            
+            if final_recording_url:
+                try:
+                    success = update_call_recording_url(
+                        call_sid, 
+                        final_recording_url,
+                        recording_sid=recording_sid,
+                        recording_duration=recording_duration_int
+                    )
+                    if success:
+                        print(f"✅ Recording URL guardado para CallSid: {call_sid}, URL: {final_recording_url}, SID: {recording_sid}, Duration: {recording_duration_int}s")
+                    else:
+                        print(f"⚠️ No se pudo guardar Recording URL para CallSid: {call_sid}")
+                except Exception as e:
+                    print(f"⚠️ Error al guardar Recording URL (no crítico): {e}")
+        
+        # Si la llamada está completada y no tenemos recording_url, intentar obtenerlo de la API de Twilio
+        if call_sid and call_status == "completed" and not recording_sid and not recording_url:
+            try:
+                # Obtener la llamada de Twilio para ver si tiene grabaciones
+                call = twilio_client.calls(call_sid).fetch()
+                if call:
+                    # Buscar grabaciones asociadas a esta llamada
+                    recordings = twilio_client.recordings.list(call_sid=call_sid, limit=1)
+                    if recordings:
+                        recording = recordings[0]
+                        recording_url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Recordings/{recording.sid}"
+                        recording_duration_int = None
+                        if hasattr(recording, 'duration') and recording.duration:
+                            try:
+                                recording_duration_int = int(recording.duration)
+                            except (ValueError, TypeError):
+                                pass
+                        success = update_call_recording_url(
+                            call_sid, 
+                            recording_url,
+                            recording_sid=recording.sid,
+                            recording_duration=recording_duration_int
+                        )
+                        if success:
+                            print(f"✅ Recording URL obtenido de API y guardado para CallSid: {call_sid}, URL: {recording_url}, SID: {recording.sid}, Duration: {recording_duration_int}s")
+            except Exception as e:
+                print(f"⚠️ Error al obtener recording de API (no crítico): {e}")
+        
+        # Actualizar estado de la llamada si es necesario
+        # NOTA: No marcamos como completed aquí, solo cuando tengamos recording_duration
+        if call_sid and call_status:
+            db = SessionLocal()
+            try:
+                call_log = db.query(CallLog).filter(CallLog.call_sid == call_sid).first()
+                if call_log:
+                    from app.models.call_log import CallStatus
+                    # Mapear estados de Twilio a nuestros estados
+                    # NO marcamos como completed aquí, solo cuando tengamos recording_duration
+                    status_mapping = {
+                        "queued": CallStatus.in_progress,
+                        "ringing": CallStatus.in_progress,
+                        "in-progress": CallStatus.in_progress,
+                        # "completed": NO lo marcamos aquí, se marca cuando tengamos recording_duration
+                        "busy": CallStatus.failed,
+                        "failed": CallStatus.failed,
+                        "no-answer": CallStatus.no_answer,  # No contestaron la llamada
+                        "canceled": CallStatus.failed
+                    }
+                    if call_status in status_mapping:
+                        # Solo actualizar si no es "completed" (completed se maneja cuando tengamos recording_duration)
+                        if call_status != "completed":
+                            call_log.status = status_mapping[call_status]
+                        # Si es "completed" pero aún no tenemos recording_duration, solo actualizar end_time
+                        elif call_status == "completed" and not call_log.recording_duration:
+                            call_log.end_time = datetime.now(timezone.utc)
+                            # No marcamos como completed hasta tener recording_duration
+                        db.commit()
+                        print(f"✅ Estado de llamada actualizado: {call_status} (completed se marcará cuando tengamos recording_duration)")
+            except Exception as e:
+                db.rollback()
+                print(f"⚠️ Error al actualizar estado (no crítico): {e}")
+            finally:
+                db.close()
+        
+        # Retornar respuesta vacía (Twilio espera 200 OK)
+        return HTMLResponse(content="", status_code=200)
+        
+    except Exception as e:
+        print(f"❌ Error en handle_call_status: {e}")
+        import traceback
+        traceback.print_exc()
+        # Retornar 200 para que Twilio no reintente
+        return HTMLResponse(content="", status_code=200)
+
+# IMPORTANTE: Este endpoint debe ser PÚBLICO (sin autenticación)
+# Es un webhook de Twilio que recibe llamadas entrantes
+# No debe tener dependencias de autenticación (get_current_user, etc.)
 @router.api_route("/incoming-call", methods=["GET", "POST"])
 async def handle_incoming_call(request: Request):
-    """ Maneja la llamada entrante y devuelve la respuesta TwiML para conectar a Media Stream."""
-    # Obtener parámetros de la llamada de Twilio
-    form_data = await request.form()
-    call_sid = form_data.get("CallSid")
-    from_number = form_data.get("From")  # Número que llama
-    to_number = form_data.get("To")  # Número que recibe (nuestro número de Twilio)
+    """
+    Maneja la llamada entrante y devuelve la respuesta TwiML para conectar a Media Stream.
     
-    print(f"📞 Llamada entrante - CallSid: {call_sid}, From: {from_number}, To: {to_number}")
-    
-    # Crear CallLog en la base de datos
-    if call_sid and to_number:
-        call_log_id = create_call_log_from_phone_number(
-            phone_number_str=to_number,
-            call_sid=call_sid,
-            direction="inbound",
-            from_number=from_number
-        )
-        if call_log_id:
-            print(f"✅ CallLog creado para llamada entrante: {call_log_id}")
-        else:
-            print(f"⚠️ No se pudo crear CallLog para la llamada entrante")
-    
-    response = VoiceResponse()
-    host = request.url.hostname
-    connect = Connect()
-    connect.stream(url=f'wss://{host}/media-stream?call_sid={call_sid}')
-    response.append(connect)
-    return HTMLResponse(content=str(response), media_type="application/xml")
+    Este endpoint es público y no requiere autenticación ya que es llamado por Twilio
+    como webhook cuando se recibe una llamada entrante.
+    """
+    try:
+        # Obtener parámetros de la llamada de Twilio
+        form_data = await request.form()
+        call_sid = form_data.get("CallSid")
+        from_number = form_data.get("From")  # Número que llama
+        to_number = form_data.get("To")  # Número que recibe (nuestro número de Twilio)
+        
+        print(f"📞 Llamada entrante - CallSid: {call_sid}, From: {from_number}, To: {to_number}")
+        
+        # Habilitar grabación para llamadas entrantes
+        if call_sid:
+            try:
+                host = HOST if HOST else request.url.hostname
+                if host and host.startswith(('http://', 'https://')):
+                    host = host.split('//')[-1].rstrip('/')
+                elif not host:
+                    host = request.url.hostname
+                
+                # Actualizar la llamada para habilitar grabación
+                twilio_client.calls(call_sid).update(
+                    record=True,
+                    recording_status_callback=f'https://{host}/call-status',
+                    recording_status_callback_method='POST'
+                )
+                print(f"✅ Grabación habilitada para llamada entrante: {call_sid}")
+            except Exception as e:
+                print(f"⚠️ Error al habilitar grabación (no crítico): {e}")
+        
+        # Crear CallLog en la base de datos (no crítico si falla)
+        if call_sid and to_number:
+            try:
+                call_log_id = create_call_log_from_phone_number(
+                    phone_number_str=to_number,
+                    call_sid=call_sid,
+                    direction="inbound",
+                    from_number=from_number
+                )
+                if call_log_id:
+                    print(f"✅ CallLog creado para llamada entrante: {call_log_id}")
+                else:
+                    print(f"⚠️ No se pudo crear CallLog para la llamada entrante")
+            except Exception as e:
+                # No fallar la llamada si no se puede crear el CallLog
+                print(f"⚠️ Error al crear CallLog (no crítico): {e}")
+        
+        # Construir respuesta TwiML
+        response = VoiceResponse()
+        
+        # Obtener el hostname correcto para el WebSocket
+        # Intentar usar HOST de variables de entorno, si no usar el hostname de la request
+        host = HOST if HOST else request.url.hostname
+        
+        # Limpiar el host (remover http:// o https:// si están presentes)
+        if host and host.startswith(('http://', 'https://')):
+            host = host.split('//')[-1].rstrip('/')
+        elif not host:
+            host = request.url.hostname
+        
+        # Construir URL del WebSocket
+        ws_url = f'wss://{host}/media-stream'
+        if call_sid:
+            ws_url += f'?call_sid={call_sid}'
+        
+        print(f"🔗 Conectando a WebSocket: {ws_url}")
+        
+        connect = Connect()
+        connect.stream(url=ws_url)
+        response.append(connect)
+        
+        # Nota: La grabación se habilita a nivel de llamada, no en TwiML cuando usamos Media Stream
+        # El recording_url se recibirá en el webhook /call-status
+        
+        twiml_response = str(response)
+        print(f"📋 TwiML generado: {twiml_response}")
+        
+        return HTMLResponse(content=twiml_response, media_type="application/xml")
+        
+    except Exception as e:
+        # En caso de error, intentar devolver una respuesta básica para que la llamada no se cuelgue
+        print(f"❌ Error crítico en handle_incoming_call: {e}")
+        traceback.print_exc()
+        
+        try:
+            # Intentar devolver una respuesta básica
+            response = VoiceResponse()
+            host = HOST if HOST else request.url.hostname
+            if host and host.startswith(('http://', 'https://')):
+                host = host.split('//')[-1].rstrip('/')
+            elif not host:
+                host = request.url.hostname or "localhost"
+            
+            ws_url = f'wss://{host}/media-stream'
+            connect = Connect()
+            connect.stream(url=ws_url)
+            response.append(connect)
+            return HTMLResponse(content=str(response), media_type="application/xml")
+        except Exception as fallback_error:
+            # Si incluso el fallback falla, devolver error pero con status 200 para que Twilio no cuelgue
+            print(f"❌ Error en fallback: {fallback_error}")
+            error_response = VoiceResponse()
+            error_response.say("Sorry, there was an error connecting the call. Please try again later.")
+            return HTMLResponse(content=str(error_response), media_type="application/xml")
 
 
+# IMPORTANTE: Este WebSocket debe ser PÚBLICO (sin autenticación)
+# Es usado por Twilio para transmitir audio en tiempo real
+# No debe tener dependencias de autenticación
 @router.websocket("/media-stream")
 async def handle_media_stream(websocket: WebSocket):
-    """ Maneja las conexiones WebSocket entre Twilio y OpenAI."""
+    """
+    Maneja las conexiones WebSocket entre Twilio y OpenAI.
+    
+    Este WebSocket es público y no requiere autenticación ya que es usado por Twilio
+    para transmitir audio en tiempo real durante las llamadas.
+    """
     print("Cliente conectado")
     await websocket.accept()
     
@@ -107,7 +356,7 @@ async def handle_media_stream(websocket: WebSocket):
             db.close()
 
     async with websockets.connect(
-        f"wss://api.openai.com/v1/realtime?model=gpt-realtime&temperature={TEMPERATURE}",
+        f"wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview&temperature={TEMPERATURE}",
         additional_headers={
             "Authorization": f"Bearer {OPENAI_API_KEY}"
         }
@@ -163,7 +412,7 @@ async def handle_media_stream(websocket: WebSocket):
             except WebSocketDisconnect:
                 print("Cliente desconectado.")
                 # Finalizar la llamada en la base de datos
-                if call_log_id:
+                if call_log_id and call_sid:
                     try:
                         # Calcular duración si tenemos start_time
                         db = SessionLocal()
@@ -172,7 +421,20 @@ async def handle_media_stream(websocket: WebSocket):
                             if call_log and call_log.start_time:
                                 from datetime import datetime, timezone
                                 duration = int((datetime.now(timezone.utc) - call_log.start_time).total_seconds())
-                                finish_call(call_log_id, duration_seconds=duration)
+                                
+                                # Intentar obtener el recording_url de Twilio si no está guardado
+                                recording_url = None
+                                if not call_log.recording_url:
+                                    try:
+                                        recordings = twilio_client.recordings.list(call_sid=call_sid, limit=1)
+                                        if recordings:
+                                            recording = recordings[0]
+                                            recording_url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Recordings/{recording.sid}"
+                                            print(f"🎙️ Recording URL obtenido de API: {recording_url}")
+                                    except Exception as e:
+                                        print(f"⚠️ Error al obtener recording de API: {e}")
+                                
+                                finish_call(call_log_id, duration_seconds=duration, recording_url=recording_url)
                                 print(f"✅ Llamada finalizada: ID={call_log_id}, Duración={duration}s")
                             else:
                                 finish_call(call_log_id)
@@ -363,11 +625,18 @@ class PhoneNumberRequest(BaseModel):
     phone_number: str | None = None
     contact_id: int | None = None  # Opcional: ID del contacto destino
 
+# IMPORTANTE: Este endpoint REQUIERE autenticación
+# Solo usuarios autenticados pueden iniciar llamadas salientes
 @router.post("/make-call")
-async def make_call(request: PhoneNumberRequest):
+async def make_call(
+    request: PhoneNumberRequest,
+    current_user: User = Depends(get_current_user)
+):
     """
     Inicia una llamada saliente al número de teléfono proporcionado.
     Puede usar contact_id (recomendado) o phone_number directamente.
+    
+    Este endpoint requiere autenticación - solo usuarios autenticados pueden iniciar llamadas.
     """
     try:
         from app.services.contact_service import get_contact_by_id
@@ -412,11 +681,14 @@ async def make_call(request: PhoneNumberRequest):
         
         print(f"Conectando a WebSocket: wss://{domain}/media-stream")
         
-        # Realizar la llamada
+        # Realizar la llamada con grabación habilitada
         call = twilio_client.calls.create(
             twiml=str(response),
             to=phone_number,
-            from_=TWILIO_PHONE_NUMBER
+            from_=TWILIO_PHONE_NUMBER,
+            record=True,  # Habilitar grabación
+            recording_status_callback=f'https://{domain}/call-status',
+            recording_status_callback_method='POST'
         )
         
         print(f"📞 Llamada saliente iniciada - CallSid: {call.sid}, To: {phone_number}, From: {TWILIO_PHONE_NUMBER}")

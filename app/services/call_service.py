@@ -63,6 +63,8 @@ def get_all_calls(
                     "turns_count": len(call.turns) if call.turns else 0,
                     "transcription_summary": call.transcription_summary,
                     "recording_url": call.recording_url,
+                    "recording_sid": call.recording_sid,
+                    "recording_duration": call.recording_duration,
                 }
                 for call in calls
             ]
@@ -129,6 +131,8 @@ def get_calls_by_company(
                     "turns_count": len(call.turns) if call.turns else 0,
                     "transcription_summary": call.transcription_summary,
                     "recording_url": call.recording_url,
+                    "recording_sid": call.recording_sid,
+                    "recording_duration": call.recording_duration,
                 }
                 for call in calls
             ]
@@ -169,6 +173,8 @@ def get_call_detail(call_id: int):
             "end_time": call.end_time.isoformat() if call.end_time else None,
             "transcription_summary": call.transcription_summary,
             "recording_url": call.recording_url,
+            "recording_sid": call.recording_sid,
+            "recording_duration": call.recording_duration,
             "company": {
                 "id": call.company.id if call.company else None,
                 "name": call.company.name if call.company else None,
@@ -238,6 +244,9 @@ def get_calls_by_phone_number(
                     "end_time": call.end_time.isoformat() if call.end_time else None,
                     "turns_count": len(call.turns) if call.turns else 0,
                     "transcription_summary": call.transcription_summary,
+                    "recording_url": call.recording_url,
+                    "recording_sid": call.recording_sid,
+                    "recording_duration": call.recording_duration,
                 }
                 for call in calls
             ]
@@ -298,6 +307,9 @@ def get_calls_by_phone_number_str(
                     "end_time": call.end_time.isoformat() if call.end_time else None,
                     "turns_count": len(call.turns) if call.turns else 0,
                     "transcription_summary": call.transcription_summary,
+                    "recording_url": call.recording_url,
+                    "recording_sid": call.recording_sid,
+                    "recording_duration": call.recording_duration,
                 }
                 for call in calls
             ]
