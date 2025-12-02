@@ -5,7 +5,6 @@ __pycache__
 venv/
 
 .env
-.env.example
 
 create_superadmin.py
 

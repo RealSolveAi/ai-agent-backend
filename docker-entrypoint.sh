@@ -131,7 +131,7 @@ fi
 # Solo ejecutar migraciones si NO usamos el SQL completo (para actualizaciones futuras)
 if [ ! -f "realsolve_ai_bd.sql" ]; then
     echo "🔄 Ejecutando migraciones (solo si no se usó SQL completo)..."
-    for migration in migrate_add_call_statuses.py migrate_add_company_is_active.py migrate_add_last_logout.py migrate_add_recording_fields.py; do
+    for migration in migrate_add_call_statuses.py migrate_add_company_is_active.py migrate_add_last_logout.py migrate_add_recording_fields.py migrate_add_agent_profiles.py migrate_add_agent_profile_id_to_call_logs.py; do
         if [ -f "$migration" ]; then
             echo "  → Ejecutando $migration..."
             python "$migration" || echo "  ⚠️ Advertencia: $migration falló (puede que ya esté aplicada)"
