@@ -27,6 +27,7 @@ class CallLog(Base):
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
     phone_number_id = Column(Integer, ForeignKey("company_phone_numbers.id", ondelete="SET NULL"), nullable=True)
     contact_id = Column(Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True)  # Contacto destino (para llamadas salientes)
+    agent_profile_id = Column(Integer, ForeignKey("agent_profiles.id", ondelete="SET NULL"), nullable=True)  # AgentProfile usado en esta llamada
 
     call_sid = Column(String(255), unique=True, nullable=True)
     

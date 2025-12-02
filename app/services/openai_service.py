@@ -236,8 +236,45 @@ async def send_initial_conversation_item(openai_ws):
     await openai_ws.send(json.dumps(initial_conversation_item))
     await openai_ws.send(json.dumps({"type": "response.create"}))
 
-async def initialize_session(openai_ws):
-    """Controla la sesión inicial con OpenAI."""
+async def initialize_session(
+    openai_ws, 
+    custom_prompt: str | None = None,
+    contact_name: str | None = None,
+    agent_name: str | None = None,
+    voice: str = VOICE,
+    temperature: float = 0.8
+):
+    """
+    Controla la sesión inicial con OpenAI.
+    
+    Args:
+        openai_ws: WebSocket de OpenAI
+        custom_prompt: Prompt personalizado de la empresa (opcional)
+        contact_name: Nombre del contacto si está registrado (opcional)
+        agent_name: Nombre del agente (opcional, reemplaza "Lina" en el prompt)
+        voice: Voz a usar (default: 'coral')
+        temperature: Temperatura del modelo (default: 0.8)
+    """
+    # Usar prompt personalizado si está disponible, sino usar el default
+    instructions = custom_prompt if (custom_prompt and custom_prompt.strip()) else SYSTEM_MESSAGE
+    
+    # Reemplazar "Lina" con el nombre del agente si existe
+    if agent_name:
+        import re
+        instructions = re.sub(r'\bLina\b', agent_name, instructions, flags=re.IGNORECASE)
+        instructions = instructions.replace("lina", agent_name.lower())
+        instructions = instructions.replace("LINA", agent_name.upper())
+    
+    # Agregar información del contacto si existe
+    if contact_name:
+        contact_context = f"\n\n— INFORMACIÓN DEL CONTACTO —\n"
+        contact_context += f"El nombre de la persona con la que estás hablando es: {contact_name}.\n"
+        contact_context += f"SIEMPRE debes dirigirte a esta persona por su nombre ({contact_name}) durante toda la conversación.\n"
+        contact_context += f"Usa su nombre al saludar, al responder y al despedirte.\n"
+        contact_context += f"Ejemplo de saludo: 'Hola {contact_name}, ¿en qué puedo ayudarte hoy?'\n"
+        contact_context += f"Nunca olvides usar su nombre ({contact_name}) cuando te dirijas a esta persona.\n"
+        instructions = instructions + contact_context
+    
     session_update = {
         "type": "session.update",
         "session": {
@@ -252,13 +289,12 @@ async def initialize_session(openai_ws):
                 },
                 "output": {
                     "format": {"type": "audio/pcmu"},
-                    "voice": VOICE
+                    "voice": voice
                 }
             },
-            "instructions": SYSTEM_MESSAGE,
+            "instructions": instructions,
         }
     }
-    print('Configurando sesión:', json.dumps(session_update))
     await openai_ws.send(json.dumps(session_update))
 
     # Uncomment the next line to have the AI speak first

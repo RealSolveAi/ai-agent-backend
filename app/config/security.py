@@ -7,9 +7,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SECRET_KEY = os.getenv("JWT_SECRET", "supersecretkey")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 horas por defecto
-REMEMBER_ME_EXPIRE_DAYS = 30  # 30 días para "remember me"
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60 * 24))  # 24 horas por defecto
+REMEMBER_ME_EXPIRE_DAYS = int(os.getenv("REMEMBER_ME_EXPIRE_DAYS", 30))  # 30 días para "remember me"
 
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 

@@ -240,7 +240,8 @@ def create_call_log_from_phone_number(
     direction: str,
     from_number: str | None = None,
     contact_id: int | None = None,
-    to_phone_number: str | None = None
+    to_phone_number: str | None = None,
+    agent_profile_id: int | None = None
 ) -> int | None:
     """
     Crea un CallLog buscando el CompanyPhoneNumber por número de teléfono.
@@ -263,16 +264,31 @@ def create_call_log_from_phone_number(
             print(f"⚠️ No se encontró CompanyPhoneNumber para el número: {phone_number_str}")
             return None
         
+        # Determinar from_phone_number y to_phone_number según la dirección
+        if direction == "inbound":
+            # Para llamadas entrantes:
+            # from_phone_number = quien llama (from_number)
+            # to_phone_number = nuestro número (phone_number_str, que es TWILIO_PHONE_NUMBER)
+            final_from_number = from_number
+            final_to_number = phone_number_str
+        else:
+            # Para llamadas salientes:
+            # from_phone_number = nuestro número (phone_number_str, que es TWILIO_PHONE_NUMBER)
+            # to_phone_number = número destino (to_phone_number)
+            final_from_number = phone_number_str
+            final_to_number = to_phone_number
+        
         call = CallLog(
             company_id=phone_number.company_id,
             phone_number_id=phone_number.id,
             contact_id=contact_id,
+            agent_profile_id=agent_profile_id,
             call_sid=call_sid,
             direction=CallDirection.inbound if direction == "inbound" else CallDirection.outbound,
             status=CallStatus.in_progress,
             start_time=datetime.now(timezone.utc),
-            to_phone_number=to_phone_number if direction == "outbound" else None,
-            from_phone_number=from_number if direction == "inbound" else phone_number_str
+            to_phone_number=final_to_number,
+            from_phone_number=final_from_number
         )
         db.add(call)
         db.commit()

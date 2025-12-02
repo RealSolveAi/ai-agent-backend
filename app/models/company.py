@@ -37,3 +37,9 @@ class Company(Base):
     @declared_attr
     def contacts(cls):
         return relationship("Contact", back_populates="company", cascade="all, delete-orphan")
+    
+    # ✅ Relación con agent_profiles
+    @declared_attr
+    def agent_profiles(cls):
+        # ✅ Usa solo el nombre en string para evitar circular import
+        return relationship("AgentProfile", back_populates="company", cascade="all, delete-orphan")

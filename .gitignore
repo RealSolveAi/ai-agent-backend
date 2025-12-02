@@ -2,8 +2,25 @@
 __pycache__
 
 .venv
+venv/
 
 .env
 .env.example
 
 create_superadmin.py
+
+# Docker
+postgres/data/
+logs/
+*.log
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

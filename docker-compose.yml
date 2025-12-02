@@ -1,0 +1,49 @@
+services:
+  api:
+    build: .
+    container_name: api-realsolve
+    env_file:
+      - .env
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - realsolve-network
+    # volumes:
+    #   # Montar el código para desarrollo (opcional, descomentar en desarrollo)
+    #   # - .:/app
+    #   # Solo montar logs si es necesario (se creará automáticamente)
+    #   # - ./logs:/app/logs
+
+  db:
+    image: postgres:16
+    container_name: postgres-realsolve
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-12345}
+      POSTGRES_DB: ${POSTGRES_DB:-realsolveai}
+    volumes:
+      # Para desarrollo: bind mount en el proyecto (fácil acceso y backup)
+      # Para producción: usar docker-compose.prod.yml que usa volumen nombrado
+      - ./postgres/data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - realsolve-network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-realsolveai}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  realsolve-network:
+    driver: bridge
