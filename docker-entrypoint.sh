@@ -131,14 +131,21 @@ fi
 # Solo ejecutar migraciones si NO usamos el SQL completo (para actualizaciones futuras)
 if [ ! -f "realsolve_ai_bd.sql" ]; then
     echo "🔄 Ejecutando migraciones (solo si no se usó SQL completo)..."
-    for migration in migrate_add_call_statuses.py migrate_add_company_is_active.py migrate_add_last_logout.py migrate_add_recording_fields.py migrate_add_agent_profiles.py migrate_add_agent_profile_id_to_call_logs.py; do
+    for migration in migrate_add_call_statuses.py migrate_add_company_is_active.py migrate_add_last_logout.py migrate_add_recording_fields.py migrate_add_agent_profiles.py migrate_add_agent_profile_id_to_call_logs.py migrate_add_friendly_name_to_phone_numbers.py; do
         if [ -f "$migration" ]; then
             echo "  → Ejecutando $migration..."
             python "$migration" || echo "  ⚠️ Advertencia: $migration falló (puede que ya esté aplicada)"
         fi
     done
 else
-    echo "ℹ️  Migraciones incluidas en SQL, saltando migraciones separadas"
+    echo "ℹ️  Migraciones incluidas en SQL, ejecutando migraciones adicionales si es necesario..."
+    # Ejecutar migraciones que pueden no estar en el SQL (por si acaso)
+    for migration in migrate_add_friendly_name_to_phone_numbers.py; do
+        if [ -f "$migration" ]; then
+            echo "  → Ejecutando $migration (verificación adicional)..."
+            python "$migration" || echo "  ⚠️ Advertencia: $migration falló (puede que ya esté aplicada)"
+        fi
+    done
 fi
 
 echo "✅ Base de datos inicializada!"

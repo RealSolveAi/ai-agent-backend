@@ -244,16 +244,50 @@ def delete_company(company_id: int):
         
         company_name = company.name
         
+        # Verificar si hay datos relacionados antes de eliminar (para mejor mensaje de error)
+        from sqlalchemy import func
+        from app.models.user import User
+        from app.models.company_phone_number import CompanyPhoneNumber
+        from app.models.contact import Contact
+        from app.models.call_log import CallLog
+        from app.models.agent_profile import AgentProfile
+        
+        user_count = db.query(func.count(User.id)).filter(User.company_id == company_id).scalar() or 0
+        phone_count = db.query(func.count(CompanyPhoneNumber.id)).filter(CompanyPhoneNumber.company_id == company_id).scalar() or 0
+        contact_count = db.query(func.count(Contact.id)).filter(Contact.company_id == company_id).scalar() or 0
+        call_count = db.query(func.count(CallLog.id)).filter(CallLog.company_id == company_id).scalar() or 0
+        agent_count = db.query(func.count(AgentProfile.id)).filter(AgentProfile.company_id == company_id).scalar() or 0
+        
         # Eliminar empresa (CASCADE eliminará todo lo relacionado)
         db.delete(company)
         db.commit()
         
         return {
             "message": f"Empresa '{company_name}' y todos sus datos relacionados eliminados permanentemente.",
-            "company_id": company_id
+            "company_id": company_id,
+            "deleted_data": {
+                "users": user_count,
+                "phone_numbers": phone_count,
+                "contacts": contact_count,
+                "calls": call_count,
+                "agent_profiles": agent_count
+            }
         }
+    except IntegrityError as e:
+        db.rollback()
+        error_msg = str(e)
+        # Proporcionar un mensaje más específico
+        if "foreign key constraint" in error_msg.lower() or "violates foreign key" in error_msg.lower():
+            return {
+                "error": "No se puede eliminar la empresa porque tiene datos relacionados que no pueden ser eliminados. "
+                        "Asegúrate de que todas las relaciones tengan CASCADE configurado correctamente."
+            }
+        return {"error": f"Error de integridad al eliminar empresa: {error_msg}"}
     except Exception as e:
         db.rollback()
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"❌ Error al eliminar empresa {company_id}: {error_details}")
         return {"error": f"Error al eliminar empresa: {str(e)}"}
     finally:
         db.close()

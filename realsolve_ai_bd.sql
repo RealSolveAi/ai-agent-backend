@@ -1,19 +1,37 @@
 -- =======================================================
 -- ENUMERACIONES
 -- =======================================================
-CREATE TYPE user_role AS ENUM ('superadmin', 'admin', 'agent', 'viewer');
-CREATE TYPE phone_type AS ENUM ('inbound', 'outbound', 'both');
-CREATE TYPE call_direction AS ENUM ('inbound', 'outbound');
-CREATE TYPE call_status AS ENUM ('initiated', 'in_progress', 'completed', 'no_answer', 'no_response', 'failed');
-CREATE TYPE sentiment_type AS ENUM ('positive', 'neutral', 'negative');
-CREATE TYPE appointment_status AS ENUM ('scheduled', 'completed', 'cancelled');
-CREATE TYPE campaign_status AS ENUM ('draft', 'running', 'paused', 'completed');
-CREATE TYPE interest_level AS ENUM ('low', 'medium', 'high');
+-- Nota: PostgreSQL no soporta IF NOT EXISTS para CREATE TYPE
+-- Estos errores son esperados si los tipos ya existen y son manejados por init_database.py
+DO $$ BEGIN
+    CREATE TYPE user_role AS ENUM ('superadmin', 'admin', 'agent', 'viewer');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN
+    CREATE TYPE phone_type AS ENUM ('inbound', 'outbound', 'both');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN
+    CREATE TYPE call_direction AS ENUM ('inbound', 'outbound');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN
+    CREATE TYPE call_status AS ENUM ('initiated', 'in_progress', 'completed', 'no_answer', 'no_response', 'failed');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN
+    CREATE TYPE sentiment_type AS ENUM ('positive', 'neutral', 'negative');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN
+    CREATE TYPE appointment_status AS ENUM ('scheduled', 'completed', 'cancelled');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN
+    CREATE TYPE campaign_status AS ENUM ('draft', 'running', 'paused', 'completed');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN
+    CREATE TYPE interest_level AS ENUM ('low', 'medium', 'high');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 -- =======================================================
 -- TABLA: companies
 -- =======================================================
-CREATE TABLE companies (
+CREATE TABLE IF NOT EXISTS companies (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255),
@@ -29,7 +47,7 @@ CREATE TABLE companies (
 -- =======================================================
 -- TABLA: users
 -- =======================================================
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     company_id INT REFERENCES companies(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
@@ -45,11 +63,12 @@ CREATE TABLE users (
 -- =======================================================
 -- TABLA: company_phone_numbers
 -- =======================================================
-CREATE TABLE company_phone_numbers (
+CREATE TABLE IF NOT EXISTS company_phone_numbers (
     id SERIAL PRIMARY KEY,
     company_id INT REFERENCES companies(id) ON DELETE CASCADE,
     twilio_sid VARCHAR(255),
     phone_number VARCHAR(50) NOT NULL,
+    friendly_name VARCHAR(100),
     country_code VARCHAR(10),
     is_active BOOLEAN DEFAULT TRUE,
     type phone_type DEFAULT 'both',
@@ -59,7 +78,7 @@ CREATE TABLE company_phone_numbers (
 -- =======================================================
 -- TABLA: agent_profiles
 -- =======================================================
-CREATE TABLE agent_profiles (
+CREATE TABLE IF NOT EXISTS agent_profiles (
     id SERIAL PRIMARY KEY,
     company_id INT REFERENCES companies(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
@@ -76,7 +95,7 @@ CREATE TABLE agent_profiles (
 -- =======================================================
 -- TABLA: integrations
 -- =======================================================
-CREATE TABLE integrations (
+CREATE TABLE IF NOT EXISTS integrations (
     id SERIAL PRIMARY KEY,
     company_id INT REFERENCES companies(id) ON DELETE CASCADE,
     platform VARCHAR(100) NOT NULL,
@@ -90,7 +109,7 @@ CREATE TABLE integrations (
 -- =======================================================
 -- TABLA: contacts
 -- =======================================================
-CREATE TABLE contacts (
+CREATE TABLE IF NOT EXISTS contacts (
     id SERIAL PRIMARY KEY,
     company_id INT REFERENCES companies(id) ON DELETE CASCADE,
     name VARCHAR(100),
@@ -111,7 +130,7 @@ CREATE TABLE contacts (
 -- =======================================================
 -- TABLA: call_logs
 -- =======================================================
-CREATE TABLE call_logs (
+CREATE TABLE IF NOT EXISTS call_logs (
     id SERIAL PRIMARY KEY,
     company_id INT REFERENCES companies(id) ON DELETE CASCADE,
     phone_number_id INT REFERENCES company_phone_numbers(id) ON DELETE SET NULL,
@@ -137,7 +156,7 @@ CREATE TABLE call_logs (
 -- =======================================================
 -- TABLA: call_turns
 -- =======================================================
-CREATE TABLE call_turns (
+CREATE TABLE IF NOT EXISTS call_turns (
     id SERIAL PRIMARY KEY,
     call_log_id INT REFERENCES call_logs(id) ON DELETE CASCADE,
     speaker VARCHAR(20) CHECK (speaker IN ('user', 'assistant', 'system')),
@@ -152,7 +171,7 @@ CREATE TABLE call_turns (
 -- =======================================================
 -- TABLA: detected_intents
 -- =======================================================
-CREATE TABLE detected_intents (
+CREATE TABLE IF NOT EXISTS detected_intents (
     id SERIAL PRIMARY KEY,
     call_id INT REFERENCES call_logs(id) ON DELETE CASCADE,
     intent_name VARCHAR(100),
@@ -163,7 +182,7 @@ CREATE TABLE detected_intents (
 -- =======================================================
 -- TABLA: extracted_fields
 -- =======================================================
-CREATE TABLE extracted_fields (
+CREATE TABLE IF NOT EXISTS extracted_fields (
     id SERIAL PRIMARY KEY,
     call_id INT REFERENCES call_logs(id) ON DELETE CASCADE,
     field_name VARCHAR(100),
@@ -174,7 +193,7 @@ CREATE TABLE extracted_fields (
 -- =======================================================
 -- TABLA: recordings
 -- =======================================================
-CREATE TABLE recordings (
+CREATE TABLE IF NOT EXISTS recordings (
     id SERIAL PRIMARY KEY,
     call_id INT UNIQUE REFERENCES call_logs(id) ON DELETE CASCADE,
     url TEXT,
@@ -187,7 +206,7 @@ CREATE TABLE recordings (
 -- =======================================================
 -- TABLA: appointments
 -- =======================================================
-CREATE TABLE appointments (
+CREATE TABLE IF NOT EXISTS appointments (
     id SERIAL PRIMARY KEY,
     call_id INT REFERENCES call_logs(id) ON DELETE CASCADE,
     contact_id INT REFERENCES contacts(id) ON DELETE CASCADE,
@@ -202,7 +221,7 @@ CREATE TABLE appointments (
 -- =======================================================
 -- TABLA: leads
 -- =======================================================
-CREATE TABLE leads (
+CREATE TABLE IF NOT EXISTS leads (
     id SERIAL PRIMARY KEY,
     company_id INT REFERENCES companies(id) ON DELETE CASCADE,
     contact_id INT REFERENCES contacts(id) ON DELETE SET NULL,
@@ -215,7 +234,7 @@ CREATE TABLE leads (
 -- =======================================================
 -- TABLA: outbound_campaigns
 -- =======================================================
-CREATE TABLE outbound_campaigns (
+CREATE TABLE IF NOT EXISTS outbound_campaigns (
     id SERIAL PRIMARY KEY,
     company_id INT REFERENCES companies(id) ON DELETE CASCADE,
     name VARCHAR(100),
@@ -229,7 +248,7 @@ CREATE TABLE outbound_campaigns (
 -- =======================================================
 -- TABLA: campaign_targets
 -- =======================================================
-CREATE TABLE campaign_targets (
+CREATE TABLE IF NOT EXISTS campaign_targets (
     id SERIAL PRIMARY KEY,
     campaign_id INT REFERENCES outbound_campaigns(id) ON DELETE CASCADE,
     contact_id INT REFERENCES contacts(id) ON DELETE CASCADE,
