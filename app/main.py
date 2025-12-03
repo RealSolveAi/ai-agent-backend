@@ -1,6 +1,5 @@
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 import os
 from dotenv import load_dotenv
 
@@ -63,26 +62,3 @@ app.include_router(agent_profile_router)
 @app.get("/")
 async def root():
     return {"message": "RealSolveAI Voice AI Platform is running!"}
-
-# Manejar preflight requests explícitamente para evitar problemas con redirects
-@app.options("/{full_path:path}")
-async def options_handler(full_path: str, request: Request):
-    """Maneja preflight requests (OPTIONS) para todas las rutas."""
-    # Obtener el origen de la petición
-    origin = request.headers.get("origin")
-    
-    # Crear respuesta con headers CORS apropiados
-    response = JSONResponse(content={"message": "OK"})
-    
-    # Si hay un origen, agregarlo a los headers permitidos
-    if origin:
-        response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-    else:
-        response.headers["Access-Control-Allow-Origin"] = "*"
-    
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-    response.headers["Access-Control-Allow-Headers"] = "*"
-    response.headers["Access-Control-Max-Age"] = "3600"
-    
-    return response
