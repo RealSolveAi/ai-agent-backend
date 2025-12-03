@@ -36,7 +36,7 @@ class UpdateAgentProfileRequest(BaseModel):
     is_active: Optional[bool] = None
 
 
-@router.post("/")
+@router.post("")
 async def create_agent_profile_endpoint(
     request: CreateAgentProfileRequest,
     current_user: User = Depends(get_user_or_superadmin)
