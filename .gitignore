@@ -6,8 +6,6 @@ venv/
 
 .env
 
-create_superadmin.py
-
 # Docker
 postgres/data/
 logs/
