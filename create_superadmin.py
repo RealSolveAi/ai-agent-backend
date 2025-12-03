@@ -1,11 +1,15 @@
 # create_superadmin.py
 # Script para crear un usuario superadmin en la base de datos
-from app.models import company
-from app.models import user
-from app.models import contact
-from app.models import call_log
-from app.models import call_turn
-from app.models import company_phone_number
+# Importar todos los modelos para que SQLAlchemy pueda resolver las relaciones
+from app.models import (
+    company,
+    user,
+    contact,
+    call_log,
+    call_turn,
+    company_phone_number,
+    agent_profile
+)
 
 from app.persistance.db import SessionLocal
 from app.models.user import User, UserRole

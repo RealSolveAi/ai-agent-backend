@@ -1,5 +1,20 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import os
+from dotenv import load_dotenv
+
+# ⚠️ IMPORTANTE: Importar todos los modelos ANTES de importar los routers
+# Esto asegura que SQLAlchemy pueda resolver las relaciones por nombre de string
+from app.models import (
+    Company,
+    User,
+    CompanyPhoneNumber,
+    CallLog,
+    CallTurn,
+    Contact,
+    AgentProfile
+)
+
 from app.services import twilio_service
 from app.routers.company_router import router as company_router
 from app.routers.phone_number_router import router as phone_number_router
@@ -8,8 +23,6 @@ from app.routers.contact_router import router as contact_router
 from app.routers.auth_router import router as auth_router
 from app.routers.user_router import router as user_router
 from app.routers.agent_profile_router import router as agent_profile_router
-import os
-from dotenv import load_dotenv
 
 load_dotenv()
 
