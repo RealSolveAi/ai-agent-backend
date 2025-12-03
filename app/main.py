@@ -1,5 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import os
 from dotenv import load_dotenv
 
@@ -30,14 +31,21 @@ app = FastAPI(title="Realsolve AI Backend", version="1.0")
 
 # Configuración de CORS
 # Obtener orígenes permitidos desde variables de entorno o usar valores por defecto
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "").split(",")
+ALLOWED_ORIGINS_STR = os.getenv("ALLOWED_ORIGINS", "").strip()
+if ALLOWED_ORIGINS_STR:
+    # Si hay orígenes especificados, usarlos
+    ALLOWED_ORIGINS = [origin.strip() for origin in ALLOWED_ORIGINS_STR.split(",") if origin.strip()]
+else:
+    # Si no hay orígenes especificados, permitir todos (para desarrollo)
+    ALLOWED_ORIGINS = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,  # Permitir todos los orígenes
+    allow_origins=ALLOWED_ORIGINS,  # Lista de orígenes permitidos o ["*"] para todos
     allow_credentials=True,  # Permitir cookies y headers de autenticación
     allow_methods=["*"],  # Permitir todos los métodos HTTP (GET, POST, PUT, DELETE, OPTIONS, etc.)
     allow_headers=["*"],  # Permitir todos los headers (incluyendo Authorization para JWT)
+    expose_headers=["*"],  # Exponer todos los headers en la respuesta
 )
 
 # Principal - modelo assistant AI - SIN CONTROLADOR (ROUTER)
@@ -55,3 +63,26 @@ app.include_router(agent_profile_router)
 @app.get("/")
 async def root():
     return {"message": "RealSolveAI Voice AI Platform is running!"}
+
+# Manejar preflight requests explícitamente para evitar problemas con redirects
+@app.options("/{full_path:path}")
+async def options_handler(full_path: str, request: Request):
+    """Maneja preflight requests (OPTIONS) para todas las rutas."""
+    # Obtener el origen de la petición
+    origin = request.headers.get("origin")
+    
+    # Crear respuesta con headers CORS apropiados
+    response = JSONResponse(content={"message": "OK"})
+    
+    # Si hay un origen, agregarlo a los headers permitidos
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+    else:
+        response.headers["Access-Control-Allow-Origin"] = "*"
+    
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    response.headers["Access-Control-Max-Age"] = "3600"
+    
+    return response
