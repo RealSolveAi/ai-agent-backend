@@ -50,14 +50,14 @@ app.add_middleware(
 # Principal - modelo assistant AI - SIN CONTROLADOR (ROUTER)
 app.include_router(twilio_service.router, tags=["Twilio"])
 
-# Routers
+# Routers - Orden importante: rutas más específicas primero
 app.include_router(auth_router)
+app.include_router(agent_profile_router)  # Mover antes de otros para evitar conflictos
 app.include_router(company_router)
 app.include_router(phone_number_router)
 app.include_router(call_router)
 app.include_router(contact_router)
 app.include_router(user_router)
-app.include_router(agent_profile_router)
 
 @app.get("/")
 async def root():

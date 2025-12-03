@@ -5,6 +5,7 @@ __pycache__
 venv/
 
 .env
+.env.example
 
 # Docker
 postgres/data/
@@ -21,3 +22,12 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Nginx
+nginx-config-example.conf
+nginx-config-simple.conf
+
+
+production.md
+quickstart.md
+readme.Docker.md
