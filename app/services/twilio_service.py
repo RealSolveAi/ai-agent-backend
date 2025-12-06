@@ -527,8 +527,15 @@ async def handle_media_stream(websocket: WebSocket):
     print("Cliente conectado")
     await websocket.accept()
     
+    # Obtener call_sid del query parameter si está disponible
+    call_sid_from_query = None
+    if websocket.query_params:
+        call_sid_from_query = websocket.query_params.get("call_sid")
+        if call_sid_from_query:
+            print(f"📞 CallSid obtenido del query parameter: {call_sid_from_query}")
+    
     # Variables para almacenar datos del agente y contacto
-    call_sid = None
+    call_sid = call_sid_from_query
     call_log_id = None
     agent_name = None
     contact_name = None
@@ -604,18 +611,27 @@ async def handle_media_stream(websocket: WebSocket):
         
         return False
 
+    # Intentar cargar datos del CallLog antes de inicializar la sesión (si tenemos call_sid)
+    if call_sid:
+        print(f"🔍 Intentando cargar datos del CallLog antes de inicializar sesión...")
+        await load_call_data_from_db(call_sid)
+        if agent_name or custom_prompt or contact_name:
+            print(f"✅ Datos cargados antes de inicializar - Agent: {agent_name or 'N/A'}, Contact: {contact_name or 'N/A'}, Prompt: {'Custom' if custom_prompt else 'Default'}")
+        else:
+            print(f"⚠️ No se encontraron datos del agente/contacto, usando valores por defecto")
+    
     async with websockets.connect(
         f"wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview&temperature={agent_temperature}",
         additional_headers={
             "Authorization": f"Bearer {OPENAI_API_KEY}"
         }
     ) as openai_ws:
-        # Inicializar sesión con valores por defecto (se actualizará cuando tengamos los datos del CallLog)
+        # Inicializar sesión con los datos cargados (si están disponibles)
         await initialize_session(
             openai_ws,
-            custom_prompt=None,
-            contact_name=None,
-            agent_name=None,
+            custom_prompt=custom_prompt,
+            contact_name=contact_name,
+            agent_name=agent_name,
             voice=agent_voice,
             temperature=agent_temperature
         )
@@ -812,44 +828,32 @@ async def handle_media_stream(websocket: WebSocket):
                             await load_call_data_from_db(call_sid)
                             
                             # Actualizar la sesión de OpenAI con los datos correctos
-                            if custom_prompt or agent_name or contact_name:
-                                # Determinar qué prompt usar
-                                instructions = custom_prompt if (custom_prompt and custom_prompt.strip()) else SYSTEM_MESSAGE
-                                
-                                # Reemplazar "Lina" con el nombre del agente si existe
-                                if agent_name:
-                                    import re
-                                    instructions = re.sub(r'\bLina\b', agent_name, instructions, flags=re.IGNORECASE)
-                                    instructions = instructions.replace("lina", agent_name.lower())
-                                    instructions = instructions.replace("LINA", agent_name.upper())
-                                
-                                # Agregar información del contacto si existe
-                                if contact_name:
-                                    contact_context = f"\n\n— INFORMACIÓN DEL CONTACTO —\n"
-                                    contact_context += f"El nombre de la persona con la que estás hablando es: {contact_name}.\n"
-                                    contact_context += f"SIEMPRE debes dirigirte a esta persona por su nombre ({contact_name}) durante toda la conversación.\n"
-                                    contact_context += f"Usa su nombre al saludar, al responder y al despedirte.\n"
-                                    contact_context += f"Ejemplo de saludo: 'Hola {contact_name}, ¿en qué puedo ayudarte hoy?'\n"
-                                    contact_context += f"Nunca olvides usar su nombre ({contact_name}) cuando te dirijas a esta persona.\n"
-                                    instructions = instructions + contact_context
-                                
-                                # Construir y enviar el session_update
-                                session_update = {
-                                    "type": "session.update",
-                                    "session": {
-                                        "type": "realtime",
-                                        "instructions": instructions,
-                                        "audio": {
-                                            "output": {
-                                                "format": {"type": "audio/pcmu"},
-                                                "voice": agent_voice
-                                            }
+                            # Usar la función build_instructions para construir el prompt correctamente
+                            from app.services.openai_service import build_instructions
+                            
+                            instructions = build_instructions(
+                                custom_prompt=custom_prompt,
+                                contact_name=contact_name,
+                                agent_name=agent_name
+                            )
+                            
+                            # Construir y enviar el session_update
+                            session_update = {
+                                "type": "session.update",
+                                "session": {
+                                    "type": "realtime",
+                                    "instructions": instructions,
+                                    "audio": {
+                                        "output": {
+                                            "format": {"type": "audio/pcmu"},
+                                            "voice": agent_voice
                                         }
                                     }
                                 }
-                                
-                                await openai_ws.send(json.dumps(session_update))
-                                print(f"✅ Sesión actualizada - Agent: {agent_name or 'N/A'}, Contact: {contact_name or 'N/A'}")
+                            }
+                            
+                            await openai_ws.send(json.dumps(session_update))
+                            print(f"✅ Sesión actualizada - Agent: {agent_name or 'N/A'}, Contact: {contact_name or 'N/A'}, Prompt: {'Custom' if custom_prompt else 'Default'}")
                         
                         print(f"Incoming stream has started {stream_sid}, CallSid: {call_sid}")
                         response_start_timestamp_twilio = None

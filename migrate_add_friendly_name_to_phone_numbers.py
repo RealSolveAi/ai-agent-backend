@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Migración: Agregar columna friendly_name a company_phone_numbers
+Migración: Agregar columnas friendly_name, country_code e is_active a company_phone_numbers
 """
 import os
 import sys
@@ -36,7 +36,7 @@ def parse_database_url(url):
     return None
 
 def migrate():
-    """Agrega la columna friendly_name a company_phone_numbers si no existe."""
+    """Agrega las columnas friendly_name, country_code e is_active a company_phone_numbers si no existen."""
     try:
         # Convertir formato SQLAlchemy a psycopg2 si es necesario
         database_url = DATABASE_URL
@@ -68,24 +68,32 @@ def migrate():
         conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
         cursor = conn.cursor()
         
-        # Verificar si la columna ya existe
-        cursor.execute("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'company_phone_numbers' 
-            AND column_name = 'friendly_name'
-        """)
+        # Columnas a agregar
+        columns_to_add = [
+            ('friendly_name', 'VARCHAR(100)'),
+            ('country_code', 'VARCHAR(10)'),
+            ('is_active', 'BOOLEAN DEFAULT TRUE')
+        ]
         
-        if cursor.fetchone():
-            print("✅ La columna 'friendly_name' ya existe en 'company_phone_numbers'")
-        else:
-            # Agregar la columna
-            print("📝 Agregando columna 'friendly_name' a 'company_phone_numbers'...")
+        for column_name, column_type in columns_to_add:
+            # Verificar si la columna ya existe
             cursor.execute("""
-                ALTER TABLE company_phone_numbers 
-                ADD COLUMN friendly_name VARCHAR(100)
-            """)
-            print("✅ Columna 'friendly_name' agregada exitosamente")
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'company_phone_numbers' 
+                AND column_name = %s
+            """, (column_name,))
+            
+            if cursor.fetchone():
+                print(f"✅ La columna '{column_name}' ya existe en 'company_phone_numbers'")
+            else:
+                # Agregar la columna
+                print(f"📝 Agregando columna '{column_name}' a 'company_phone_numbers'...")
+                cursor.execute(f"""
+                    ALTER TABLE company_phone_numbers 
+                    ADD COLUMN {column_name} {column_type}
+                """)
+                print(f"✅ Columna '{column_name}' agregada exitosamente")
         
         cursor.close()
         conn.close()
@@ -98,7 +106,7 @@ def migrate():
         return False
 
 if __name__ == "__main__":
-    print("🛠️  Ejecutando migración: agregar friendly_name a company_phone_numbers...")
+    print("🛠️  Ejecutando migración: agregar friendly_name, country_code e is_active a company_phone_numbers...")
     if migrate():
         print("✅ Migración completada exitosamente!")
         sys.exit(0)
