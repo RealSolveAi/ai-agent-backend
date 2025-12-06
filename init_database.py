@@ -77,28 +77,60 @@ def execute_sql_file(sql_file_path):
             sql_content = f.read()
         
         # Dividir en sentencias (separadas por ;)
-        # Remover comentarios de línea (--)
+        # Manejar correctamente bloques DO $$ ... END $$ que contienen ; dentro
         statements = []
         current_statement = []
+        in_dollar_quote = False
+        dollar_tag = None
         
-        for line in sql_content.split('\n'):
-            line = line.strip()
-            # Saltar líneas vacías y comentarios
-            if not line or line.startswith('--'):
+        # Usar una expresión regular más robusta para dividir el SQL
+        # Buscar bloques DO $$ ... END $$ completos primero
+        sql_content_clean = sql_content
+        
+        # Dividir por punto y coma, pero respetando bloques DO $$ ... END $$
+        # Patrón para encontrar bloques DO $$ ... END $$
+        do_block_pattern = r'DO\s+\$\$[^$]*\$\$;'
+        
+        # Primero, reemplazar temporalmente los bloques DO $$ ... END $$ con marcadores
+        do_blocks = []
+        def replace_do_block(match):
+            block = match.group(0)
+            marker = f"__DO_BLOCK_{len(do_blocks)}__"
+            do_blocks.append(block)
+            return marker
+        
+        sql_with_markers = re.sub(do_block_pattern, replace_do_block, sql_content_clean, flags=re.IGNORECASE | re.DOTALL)
+        
+        # Ahora dividir por punto y coma
+        parts = sql_with_markers.split(';')
+        
+        for part in parts:
+            part = part.strip()
+            if not part:
                 continue
             
-            # Remover comentarios al final de la línea
-            if '--' in line:
-                line = line.split('--')[0].strip()
+            # Restaurar los bloques DO $$ ... END $$ si hay marcadores
+            for i, block in enumerate(do_blocks):
+                marker = f"__DO_BLOCK_{i}__"
+                if marker in part:
+                    part = part.replace(marker, block)
             
-            current_statement.append(line)
+            # Remover comentarios de línea
+            lines = []
+            for line in part.split('\n'):
+                line = line.strip()
+                if not line or line.startswith('--'):
+                    continue
+                # Remover comentarios al final de la línea
+                if '--' in line:
+                    line = line.split('--')[0].strip()
+                if line:
+                    lines.append(line)
             
-            # Si la línea termina con ';', es el final de una sentencia
-            if line.endswith(';'):
-                statement = ' '.join(current_statement)
-                if statement and statement != ';':
+            if lines:
+                statement = '\n'.join(lines)
+                if statement and statement.strip():
                     statements.append(statement)
-                current_statement = []
         
         # Ejecutar cada sentencia
         executed = 0

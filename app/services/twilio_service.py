@@ -461,11 +461,17 @@ async def handle_incoming_call(request: Request):
         # Intentar usar HOST de variables de entorno, si no usar el hostname de la request
         host = HOST if HOST else request.url.hostname
         
+        if not host:
+            print("⚠️ No se pudo determinar el host para el WebSocket")
+            host = "localhost"  # Fallback
+        
         # Limpiar el host (remover http:// o https:// si están presentes)
-        if host and host.startswith(('http://', 'https://')):
+        if host.startswith(('http://', 'https://')):
             host = host.split('//')[-1].rstrip('/')
-        elif not host:
-            host = request.url.hostname
+        
+        # Remover puerto si está presente (Twilio usa el puerto 443 para wss)
+        if ':' in host:
+            host = host.split(':')[0]
         
         # Construir URL del WebSocket
         ws_url = f'wss://{host}/media-stream'
@@ -1323,11 +1329,18 @@ async def make_call(
         # PASO 2: Construir TwiML y iniciar llamada
         # ============================================
         host = os.getenv('HOST')
-        if not host.startswith(('http://', 'https://')):
-            host = f'https://{host}'
+        if not host:
+            # Si no hay HOST configurado, usar el hostname de la request
+            # Esto es un fallback, pero debería configurarse HOST en producción
+            raise HTTPException(status_code=500, detail="HOST no configurado en variables de entorno")
+        
+        # Limpiar el host (remover http:// o https:// si están presentes)
+        if host.startswith(('http://', 'https://')):
+            domain = host.split('//')[-1].rstrip('/')
+        else:
+            domain = host.rstrip('/')
         
         response = VoiceResponse()
-        domain = host.split('//')[-1].rstrip('/')
         connect = Connect()
         connect.stream(url=f'wss://{domain}/media-stream')
         response.append(connect)
