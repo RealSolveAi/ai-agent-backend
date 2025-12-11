@@ -288,19 +288,22 @@ def build_instructions(
     agent_name: str | None = None
 ) -> str:
     """
-    Construye las instrucciones del prompt combinando el prompt personalizado,
-    el nombre del agente, el nombre del contacto y las instrucciones adicionales.
+    Construye las instrucciones del prompt usando SOLO el prompt personalizado de la base de datos,
+    combinándolo con el nombre del agente y el nombre del contacto.
     
     Args:
-        custom_prompt: Prompt personalizado de la empresa (opcional)
+        custom_prompt: Prompt personalizado de la empresa desde la base de datos (requerido)
         contact_name: Nombre del contacto si está registrado (opcional)
         agent_name: Nombre del agente (opcional, reemplaza "Lina" en el prompt)
     
     Returns:
         str: Instrucciones completas para el agente
     """
-    # Usar prompt personalizado si está disponible, sino usar el default
-    instructions = custom_prompt if (custom_prompt and custom_prompt.strip()) else SYSTEM_MESSAGE
+    # Usar SOLO el prompt personalizado de la base de datos
+    if not custom_prompt or not custom_prompt.strip():
+        raise ValueError("custom_prompt es requerido y no puede estar vacío. Debe estar configurado en el agent_profile de la base de datos.")
+    
+    instructions = custom_prompt.strip()
     
     # Reemplazar "Lina" con el nombre del agente si existe
     if agent_name:
@@ -325,8 +328,7 @@ def build_instructions(
         contact_context += f"Example greeting: 'Hello {contact_name}, how can I help you today?'\n"
         instructions = instructions + contact_context
     
-    # Add additional behavior instructions
-    additional_instructions = SYSTEM_MESSAGE
+    # Add additional behavior instructions (sin usar SYSTEM_MESSAGE)
     additional_instructions = "\n\n— ADDITIONAL BEHAVIOR —\n"
     additional_instructions += "• Be patient and understanding with what the customer says. Don't rush or interrupt.\n"
     additional_instructions += "• If you don't understand something the customer says, politely ask them to repeat or confirm: 'Could you repeat that, please?' or 'Could you confirm that I understood correctly?'\n"
