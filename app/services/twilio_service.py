@@ -579,7 +579,9 @@ async def handle_media_stream(websocket: WebSocket):
                             agent_name = agent_profile.name
                             agent_voice = agent_profile.voice or 'coral'
                             agent_temperature = agent_profile.temperature if agent_profile.temperature is not None else TEMPERATURE
+                            prompt_preview = (custom_prompt[:100] + "...") if custom_prompt and len(custom_prompt) > 100 else (custom_prompt or "(vacío)")
                             print(f"🤖 AgentProfile: {agent_profile.name} (Voz: {agent_voice}, Temp: {agent_temperature})")
+                            print(f"📝 Prompt del agente: {prompt_preview}")
                         else:
                             print(f"⚠️ AgentProfile ID {call_log.agent_profile_id} no encontrado o inactivo")
                     

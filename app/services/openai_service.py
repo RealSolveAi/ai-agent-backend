@@ -75,7 +75,7 @@ SYSTEM_MESSAGE = (
 """
 
 # PROMPT FOR TRUCKBAYS (Active)
-SYSTEM_MESSAGE = (
+""" SYSTEM_MESSAGE = (
     "You are Lina, the official voice assistant for Truckbays. "
     "Your native language is English. You MUST speak ONLY in English, regardless of what language the customer uses. "
     "You speak native American English with a warm, confident, and highly professional tone. "
@@ -189,7 +189,7 @@ SYSTEM_MESSAGE = (
     "Thanks for your time. Have a great day.\n"
     "or\n"
     "Perfect. Thanks for your interest in Truckbays. Talk soon."
-)
+) """
 
 
 # PROMPT FOR REALSOLVEAI (English) - Commented out
@@ -262,6 +262,8 @@ SYSTEM_MESSAGE = (
 )
 """
 
+SYSTEM_MESSAGE = ""
+
 VOICE = 'coral' #alloy, ash, ballad, coral, echo, sage, shimmer, verse, marin, cedar (Femenina: verse, ash, ballad, shimmer)
 
 async def send_initial_conversation_item(openai_ws):
@@ -300,7 +302,15 @@ def build_instructions(
         str: Instrucciones completas para el agente
     """
     # Usar prompt personalizado si está disponible, sino usar el default
-    instructions = custom_prompt if (custom_prompt and custom_prompt.strip()) else SYSTEM_MESSAGE
+    if custom_prompt and custom_prompt.strip():
+        instructions = custom_prompt
+        print(f"✅ Usando prompt personalizado del agente (longitud: {len(custom_prompt)} caracteres)")
+    else:
+        instructions = SYSTEM_MESSAGE
+        if not instructions or not instructions.strip():
+            print(f"⚠️ SYSTEM_MESSAGE está vacío y custom_prompt no está disponible")
+        else:
+            print(f"✅ Usando SYSTEM_MESSAGE (longitud: {len(instructions)} caracteres)")
     
     # Reemplazar "Lina" con el nombre del agente si existe
     if agent_name:
@@ -326,7 +336,6 @@ def build_instructions(
         instructions = instructions + contact_context
     
     # Add additional behavior instructions
-    additional_instructions = SYSTEM_MESSAGE
     additional_instructions = "\n\n— ADDITIONAL BEHAVIOR —\n"
     additional_instructions += "• Be patient and understanding with what the customer says. Don't rush or interrupt.\n"
     additional_instructions += "• If you don't understand something the customer says, politely ask them to repeat or confirm: 'Could you repeat that, please?' or 'Could you confirm that I understood correctly?'\n"
