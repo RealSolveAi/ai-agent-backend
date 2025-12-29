@@ -266,8 +266,14 @@ SYSTEM_MESSAGE = ""
 
 VOICE = 'coral' #alloy, ash, ballad, coral, echo, sage, shimmer, verse, marin, cedar (Femenina: verse, ash, ballad, shimmer)
 
-async def send_initial_conversation_item(openai_ws):
+async def send_initial_conversation_item(openai_ws, contact_name: str | None = None):
     """Envía el primer item de la conversación para que la IA responda de primero."""
+    # Si tenemos el nombre del contacto, usar un mensaje que lo incluya para que la IA lo use en su saludo
+    if contact_name:
+        initial_text = f"Hello {contact_name}"
+    else:
+        initial_text = "hello"
+    
     initial_conversation_item = {
         "type": "conversation.item.create",
         "item": {
@@ -276,7 +282,7 @@ async def send_initial_conversation_item(openai_ws):
             "content": [
                 {
                     "type": "input_text",
-                    "text": "hello"#"Hello, thank you for calling Truckbays. How can I help you today?"
+                    "text": initial_text
                 }
             ]
         }
@@ -329,10 +335,11 @@ def build_instructions(
     # Add contact information if it exists
     if contact_name:
         contact_context = f"\n\n— CONTACT INFORMATION —\n"
-        contact_context += f"The name of the person you are speaking with is: {contact_name}.\n"
-        contact_context += f"You can mention their name ({contact_name}) during the call, especially when greeting and saying goodbye, but it is NOT necessary to use it in all your responses.\n"
+        contact_context += f"CRITICAL: The name of the person you are speaking with is: {contact_name}.\n"
+        contact_context += f"You MUST use their name ({contact_name}) in your FIRST greeting when you start the conversation.\n"
+        contact_context += f"Your initial greeting MUST include their name. For example: 'Hello {contact_name}, how can I help you today?' or 'Hi {contact_name}, this is [your name]. How can I assist you?'\n"
+        contact_context += f"You should also mention their name when saying goodbye, but it is NOT necessary to use it in every response during the conversation.\n"
         contact_context += f"Use their name naturally and strategically, not repetitively or forced.\n"
-        contact_context += f"Example greeting: 'Hello {contact_name}, how can I help you today?'\n"
         instructions = instructions + contact_context
     
     # Add additional behavior instructions
@@ -396,4 +403,4 @@ async def initialize_session(
     await openai_ws.send(json.dumps(session_update))
 
     # Uncomment the next line to have the AI speak first
-    await send_initial_conversation_item(openai_ws)
+    await send_initial_conversation_item(openai_ws, contact_name=contact_name)
