@@ -300,10 +300,16 @@ def build_instructions(
         str: Instrucciones completas para el agente
     """
     # Usar SOLO el prompt personalizado de la base de datos
+    # Permitir un prompt temporal mínimo solo para inicialización (será reemplazado cuando llegue el prompt correcto)
     if not custom_prompt or not custom_prompt.strip():
         raise ValueError("custom_prompt es requerido y no puede estar vacío. Debe estar configurado en el agent_profile de la base de datos.")
     
-    instructions = custom_prompt.strip()
+    # Verificar si es un prompt temporal de espera
+    if custom_prompt and "Please wait for instructions" in custom_prompt:
+        instructions = custom_prompt.strip()
+        print("⚠️ Usando prompt temporal. La sesión se actualizará cuando llegue el prompt correcto.")
+    else:
+        instructions = custom_prompt.strip()
     
     # Reemplazar "Lina" con el nombre del agente si existe
     if agent_name:

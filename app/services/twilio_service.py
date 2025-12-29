@@ -575,11 +575,16 @@ async def handle_media_stream(websocket: WebSocket):
                         ).first()
                         
                         if agent_profile:
-                            custom_prompt = agent_profile.prompt
-                            agent_name = agent_profile.name
-                            agent_voice = agent_profile.voice or 'coral'
-                            agent_temperature = agent_profile.temperature if agent_profile.temperature is not None else TEMPERATURE
-                            print(f"🤖 AgentProfile: {agent_profile.name} (Voz: {agent_voice}, Temp: {agent_temperature})")
+                            # Verificar que el prompt esté disponible y no esté vacío
+                            if agent_profile.prompt and agent_profile.prompt.strip():
+                                custom_prompt = agent_profile.prompt.strip()
+                                agent_name = agent_profile.name
+                                agent_voice = agent_profile.voice or 'coral'
+                                agent_temperature = agent_profile.temperature if agent_profile.temperature is not None else TEMPERATURE
+                                print(f"🤖 AgentProfile cargado: {agent_profile.name} (Voz: {agent_voice}, Temp: {agent_temperature})")
+                                print(f"📝 Prompt disponible: {len(custom_prompt)} caracteres")
+                            else:
+                                print(f"⚠️ AgentProfile {agent_profile.name} (ID: {agent_profile.id}) no tiene prompt configurado o está vacío")
                         else:
                             print(f"⚠️ AgentProfile ID {call_log.agent_profile_id} no encontrado o inactivo")
                     
@@ -617,14 +622,41 @@ async def handle_media_stream(websocket: WebSocket):
         
         return False
 
+    # Función para cargar el prompt y verificar que esté disponible
+    async def ensure_prompt_loaded(call_sid_param: str) -> bool:
+        """Carga el prompt y verifica que esté disponible. Retorna True si está disponible."""
+        max_load_attempts = 10
+        for load_attempt in range(max_load_attempts):
+            await load_call_data_from_db(call_sid_param)
+            
+            # Verificar que el prompt esté disponible
+            if custom_prompt and custom_prompt.strip():
+                print(f"✅ Prompt cargado exitosamente - Agent: {agent_name or 'N/A'}, Contact: {contact_name or 'N/A'}")
+                return True
+            else:
+                if load_attempt < max_load_attempts - 1:
+                    wait_time = 0.3 * (load_attempt + 1)  # Espera incremental
+                    print(f"⏳ Prompt no disponible aún (intento {load_attempt + 1}/{max_load_attempts}), esperando {wait_time:.1f}s...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    print(f"❌ No se pudo cargar el prompt después de {max_load_attempts} intentos")
+        return False
+    
     # Intentar cargar datos del CallLog antes de inicializar la sesión (si tenemos call_sid)
+    # CRÍTICO: El prompt debe estar disponible antes de inicializar la sesión
+    prompt_loaded = False  # Inicializar como False por defecto
+    
     if call_sid:
         print(f"🔍 Intentando cargar datos del CallLog antes de inicializar sesión...")
-        await load_call_data_from_db(call_sid)
-        if agent_name or custom_prompt or contact_name:
-            print(f"✅ Datos cargados antes de inicializar - Agent: {agent_name or 'N/A'}, Contact: {contact_name or 'N/A'}, Prompt: {'Custom' if custom_prompt else 'Default'}")
-        else:
-            print(f"⚠️ No se encontraron datos del agente/contacto, usando valores por defecto")
+        prompt_loaded = await ensure_prompt_loaded(call_sid)
+        
+        if not prompt_loaded:
+            error_msg = f"ERROR CRÍTICO: No se pudo cargar el prompt del agent_profile para CallSid: {call_sid}. "
+            error_msg += "Asegúrate de que el agent_profile tenga un prompt configurado en la base de datos."
+            print(error_msg)
+            raise ValueError(error_msg)
+    else:
+        print(f"⚠️ No hay call_sid en query parameters. Esperando evento 'start' para obtener call_sid...")
     
     async with websockets.connect(
         f"wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview&temperature={agent_temperature}",
@@ -632,15 +664,29 @@ async def handle_media_stream(websocket: WebSocket):
             "Authorization": f"Bearer {OPENAI_API_KEY}"
         }
     ) as openai_ws:
-        # Inicializar sesión con los datos cargados (si están disponibles)
-        await initialize_session(
-            openai_ws,
-            custom_prompt=custom_prompt,
-            contact_name=contact_name,
-            agent_name=agent_name,
-            voice=agent_voice,
-            temperature=agent_temperature
-        )
+        # Inicializar sesión solo si el prompt ya está cargado
+        # Si no está cargado, esperaremos al evento 'start' para cargarlo y actualizar la sesión
+        if prompt_loaded:
+            await initialize_session(
+                openai_ws,
+                custom_prompt=custom_prompt,
+                contact_name=contact_name,
+                agent_name=agent_name,
+                voice=agent_voice,
+                temperature=agent_temperature
+            )
+        else:
+            print(f"⏳ Inicializando sesión sin prompt (se actualizará cuando llegue el evento 'start')...")
+            # Inicializar con un prompt temporal mínimo para evitar errores
+            # Este prompt será reemplazado cuando llegue el evento 'start'
+            await initialize_session(
+                openai_ws,
+                custom_prompt="You are a helpful assistant. Please wait for instructions.",
+                contact_name=None,
+                agent_name=None,
+                voice=agent_voice,
+                temperature=agent_temperature
+            )
 
         # Connection specific state
         stream_sid = None
@@ -831,35 +877,42 @@ async def handle_media_stream(websocket: WebSocket):
                         
                         # Cargar datos del CallLog (agente y contacto) y actualizar sesión
                         if call_sid:
-                            await load_call_data_from_db(call_sid)
+                            # Intentar cargar el prompt con múltiples intentos
+                            prompt_loaded = await ensure_prompt_loaded(call_sid)
                             
-                            # Actualizar la sesión de OpenAI con los datos correctos
-                            # Usar la función build_instructions para construir el prompt correctamente
-                            from app.services.openai_service import build_instructions
-                            
-                            instructions = build_instructions(
-                                custom_prompt=custom_prompt,
-                                contact_name=contact_name,
-                                agent_name=agent_name
-                            )
-                            
-                            # Construir y enviar el session_update
-                            session_update = {
-                                "type": "session.update",
-                                "session": {
-                                    "type": "realtime",
-                                    "instructions": instructions,
-                                    "audio": {
-                                        "output": {
-                                            "format": {"type": "audio/pcmu"},
-                                            "voice": agent_voice
+                            if not prompt_loaded:
+                                error_msg = f"ERROR CRÍTICO: No se pudo cargar el prompt del agent_profile para CallSid: {call_sid}. "
+                                error_msg += "Asegúrate de que el agent_profile tenga un prompt configurado en la base de datos."
+                                print(error_msg)
+                                # No lanzar error aquí, solo registrar y continuar
+                            else:
+                                # Actualizar la sesión de OpenAI con los datos correctos
+                                # Usar la función build_instructions para construir el prompt correctamente
+                                from app.services.openai_service import build_instructions
+                                
+                                instructions = build_instructions(
+                                    custom_prompt=custom_prompt,
+                                    contact_name=contact_name,
+                                    agent_name=agent_name
+                                )
+                                
+                                # Construir y enviar el session_update
+                                session_update = {
+                                    "type": "session.update",
+                                    "session": {
+                                        "type": "realtime",
+                                        "instructions": instructions,
+                                        "audio": {
+                                            "output": {
+                                                "format": {"type": "audio/pcmu"},
+                                                "voice": agent_voice
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            
-                            await openai_ws.send(json.dumps(session_update))
-                            print(f"✅ Sesión actualizada - Agent: {agent_name or 'N/A'}, Contact: {contact_name or 'N/A'}, Prompt: {'Custom' if custom_prompt else 'Default'}")
+                                
+                                await openai_ws.send(json.dumps(session_update))
+                                print(f"✅ Sesión actualizada - Agent: {agent_name or 'N/A'}, Contact: {contact_name or 'N/A'}, Prompt: Custom")
                         
                         print(f"Incoming stream has started {stream_sid}, CallSid: {call_sid}")
                         response_start_timestamp_twilio = None
