@@ -11,7 +11,7 @@ from fastapi.websockets import WebSocketDisconnect
 from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse, Connect
 from dotenv import load_dotenv
-from app.services.openai_service import initialize_session
+from app.services.openai_service import initialize_session, SYSTEM_MESSAGE
 from app.services.save_call_to_db import (
     create_call_log_from_phone_number,
     add_turn,
