@@ -71,3 +71,8 @@ class CallLog(Base):
     @declared_attr
     def contact(cls):
         return relationship("Contact", back_populates="call_logs")
+    
+    # ✅ Relación con cita (si la llamada fue programada)
+    @declared_attr
+    def appointment(cls):
+        return relationship("Appointment", back_populates="call_log")

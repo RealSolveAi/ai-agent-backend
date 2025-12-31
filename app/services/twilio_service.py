@@ -24,6 +24,7 @@ from app.models.call_turn import Speaker
 from app.models.user import User
 from app.routers.auth_router import get_current_user
 from pydantic import BaseModel
+from typing import Optional
 from sqlalchemy.orm import joinedload
 
 load_dotenv()
@@ -1192,6 +1193,118 @@ class PhoneNumberRequest(BaseModel):
 
 # IMPORTANTE: Este endpoint REQUIERE autenticación
 # Solo usuarios autenticados pueden iniciar llamadas salientes
+
+def make_call_internal(
+    to_phone_number: str,
+    company_id: int,
+    contact_id: Optional[int] = None,
+    agent_profile_id: Optional[int] = None,
+    appointment_id: Optional[int] = None
+):
+    """
+    Función interna para realizar llamadas programáticamente (sin autenticación HTTP).
+    Usada por el sistema de recordatorios para hacer llamadas automáticas.
+    
+    Args:
+        to_phone_number: Número de teléfono destino
+        company_id: ID de la empresa
+        contact_id: ID del contacto (opcional)
+        agent_profile_id: ID del agente (opcional, usa el activo de la empresa)
+        appointment_id: ID de la cita asociada (opcional)
+    
+    Returns:
+        Dict con información de la llamada
+    """
+    from app.models.agent_profile import AgentProfile
+    from app.models.contact import Contact
+    from app.models.appointment import Appointment
+    
+    db = SessionLocal()
+    try:
+        # Obtener agent_profile
+        if agent_profile_id:
+            agent_profile = db.query(AgentProfile).filter(
+                AgentProfile.id == agent_profile_id,
+                AgentProfile.company_id == company_id
+            ).first()
+        else:
+            agent_profile = db.query(AgentProfile).filter(
+                AgentProfile.company_id == company_id,
+                AgentProfile.is_active == True
+            ).first()
+        
+        if not agent_profile:
+            raise ValueError("No hay un AgentProfile activo para esta empresa")
+        
+        # Obtener contacto si se proporciona
+        contact_name = None
+        if contact_id:
+            contact = db.query(Contact).filter(Contact.id == contact_id).first()
+            if contact:
+                contact_name = contact.name
+        
+        # Construir TwiML
+        host = os.getenv('HOST')
+        if not host:
+            raise ValueError("HOST no configurado en variables de entorno")
+        
+        if host.startswith(('http://', 'https://')):
+            domain = host.split('//')[-1].rstrip('/')
+        else:
+            domain = host.rstrip('/')
+        
+        response = VoiceResponse()
+        connect = Connect()
+        connect.stream(url=f'wss://{domain}/media-stream')
+        response.append(connect)
+        
+        # Iniciar llamada
+        call = twilio_client.calls.create(
+            twiml=str(response),
+            to=to_phone_number,
+            from_=TWILIO_PHONE_NUMBER,
+            record=True,
+            recording_status_callback=f'https://{domain}/call-status',
+            recording_status_callback_method='POST'
+        )
+        
+        print(f"📞 Llamada automática iniciada - CallSid: {call.sid}, To: {to_phone_number}")
+        
+        # Crear CallLog
+        if call.sid:
+            call_log_id = create_call_log_from_phone_number(
+                phone_number_str=TWILIO_PHONE_NUMBER,
+                call_sid=call.sid,
+                direction="outbound",
+                from_number=None,
+                contact_id=contact_id,
+                to_phone_number=to_phone_number,
+                agent_profile_id=agent_profile.id
+            )
+            
+            # Si hay appointment_id, vincular el CallLog con la cita
+            if appointment_id and call_log_id:
+                appointment = db.query(Appointment).filter(Appointment.id == appointment_id).first()
+                if appointment:
+                    appointment.call_log_id = call_log_id
+                    db.commit()
+                    print(f"✅ CallLog {call_log_id} vinculado con Appointment {appointment_id}")
+        
+        return {
+            "status": "Llamada iniciada",
+            "call_sid": call.sid,
+            "to": to_phone_number,
+            "from": TWILIO_PHONE_NUMBER,
+            "contact_id": contact_id,
+            "contact_name": contact_name,
+            "agent_profile_id": agent_profile.id,
+            "appointment_id": appointment_id
+        }
+        
+    finally:
+        db.close()
+
+
 def prepare_call_data(
     request: PhoneNumberRequest,
     current_user: User

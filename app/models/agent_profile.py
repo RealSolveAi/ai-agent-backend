@@ -33,4 +33,9 @@ class AgentProfile(Base):
     def company(cls):
         # ✅ Usa solo el nombre en string para evitar circular import
         return relationship("Company", back_populates="agent_profiles")
+    
+    # Relación con citas
+    @declared_attr
+    def appointments(cls):
+        return relationship("Appointment", back_populates="agent_profile")
 

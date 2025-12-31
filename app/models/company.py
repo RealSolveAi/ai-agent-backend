@@ -43,3 +43,8 @@ class Company(Base):
     def agent_profiles(cls):
         # ✅ Usa solo el nombre en string para evitar circular import
         return relationship("AgentProfile", back_populates="company", cascade="all, delete-orphan")
+    
+    # ✅ Relación con appointments
+    @declared_attr
+    def appointments(cls):
+        return relationship("Appointment", back_populates="company", cascade="all, delete-orphan")

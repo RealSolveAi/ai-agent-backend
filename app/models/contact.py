@@ -42,4 +42,9 @@ class Contact(Base):
     def call_logs(cls):
         from app.models.call_log import CallLog
         return relationship("CallLog", back_populates="contact")
+    
+    # Relación con citas
+    @declared_attr
+    def appointments(cls):
+        return relationship("Appointment", back_populates="contact")
 

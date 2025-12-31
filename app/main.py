@@ -8,6 +8,7 @@ from app.routers.contact_router import router as contact_router
 from app.routers.auth_router import router as auth_router
 from app.routers.user_router import router as user_router
 from app.routers.agent_profile_router import router as agent_profile_router
+from app.routers.appointment_router import router as appointment_router
 import os
 from dotenv import load_dotenv
 
@@ -27,6 +28,20 @@ app.add_middleware(
     allow_headers=["*"],  # Permitir todos los headers (incluyendo Authorization para JWT)
 )
 
+# Inicializar el scheduler de recordatorios al arrancar la aplicación
+@app.on_event("startup")
+async def startup_event():
+    from app.services.reminder_scheduler import start_scheduler
+    start_scheduler()
+    print("✅ Servidor iniciado - Scheduler de recordatorios activo")
+
+# Detener el scheduler al cerrar la aplicación
+@app.on_event("shutdown")
+async def shutdown_event():
+    from app.services.reminder_scheduler import stop_scheduler
+    stop_scheduler()
+    print("❌ Servidor detenido - Scheduler de recordatorios desactivado")
+
 # Principal - modelo assistant AI - SIN CONTROLADOR (ROUTER)
 app.include_router(twilio_service.router, tags=["Twilio"])
 
@@ -38,7 +53,9 @@ app.include_router(call_router)
 app.include_router(contact_router)
 app.include_router(user_router)
 app.include_router(agent_profile_router)
+app.include_router(appointment_router)
 
 @app.get("/")
 async def root():
     return {"message": "RealSolveAI Voice AI Platform is running!"}
+

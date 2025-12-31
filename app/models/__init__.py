@@ -9,6 +9,8 @@ from app.models.call_log import CallLog
 from app.models.call_turn import CallTurn
 from app.models.contact import Contact
 from app.models.agent_profile import AgentProfile
+from app.models.appointment import Appointment
+from app.models.appointment_reminder import AppointmentReminder
 
 # Exportar todos los modelos
 __all__ = [
@@ -19,4 +21,6 @@ __all__ = [
     "CallTurn",
     "Contact",
     "AgentProfile",
+    "Appointment",
+    "AppointmentReminder",
 ]
