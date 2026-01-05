@@ -3,8 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
-from app.routers.auth_router import get_current_user
-from app.models.user import User
+from app.routers.auth_router import get_current_user, get_current_user_with_company
+from app.models.user import User, UserRole
 from app.models.appointment_reminder import ReminderType
 from app.services import appointment_service
 from app.services.reminder_scheduler import create_reminder, delete_reminder
@@ -49,7 +49,7 @@ class ReminderCreate(BaseModel):
 @router.post("")
 async def create_appointment(
     appointment: AppointmentCreate,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_with_company)
 ):
     """
     Crea una nueva cita programada.
@@ -62,8 +62,25 @@ async def create_appointment(
     - **timezone**: Zona horaria (opcional, usa la de la empresa)
     """
     try:
+        # Determinar el company_id
+        company_id = current_user.company_id
+        
+        # Si es superadmin y no tiene company_id, obtenemos la empresa del contacto
+        if company_id is None:
+            if current_user.role == UserRole.superadmin:
+                # Importar aquí para evitar ciclo si fuera necesario, aunque service está separado
+                from app.services.contact_service import get_contact_by_id
+                contact_data = get_contact_by_id(appointment.contact_id)
+                
+                if "error" in contact_data:
+                    raise HTTPException(status_code=404, detail="Contacto no encontrado")
+                
+                company_id = contact_data["company_id"]
+            else:
+                 raise HTTPException(status_code=403, detail="Usuario no tiene empresa asignada")
+
         new_appointment = appointment_service.create_appointment(
-            company_id=current_user.company_id,
+            company_id=company_id,
             contact_id=appointment.contact_id,
             title=appointment.title,
             scheduled_datetime=appointment.scheduled_datetime,

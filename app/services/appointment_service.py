@@ -64,8 +64,15 @@ def create_appointment(
         # Convertir a UTC para guardar
         scheduled_datetime_utc = scheduled_datetime.astimezone(pytz.UTC)
         
-        # Si no se especifica agent_profile_id, usar el activo de la empresa
-        if not agent_profile_id:
+        # Validar agent_profile_id si se proporciona
+        if agent_profile_id:
+            agent_profile = db.query(AgentProfile).filter(AgentProfile.id == agent_profile_id).first()
+            if not agent_profile:
+                raise ValueError(f"Perfil de agente {agent_profile_id} no encontrado")
+            if agent_profile.company_id != company_id:
+                raise ValueError(f"El perfil de agente {agent_profile_id} no pertenece a la empresa {company_id}")
+        else:
+            # Si no se especifica agent_profile_id, usar el activo de la empresa
             agent_profile = db.query(AgentProfile).filter(
                 AgentProfile.company_id == company_id,
                 AgentProfile.is_active == True
